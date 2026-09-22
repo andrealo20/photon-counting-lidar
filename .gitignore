@@ -1,0 +1,18 @@
+build/
+build-*/
+*.o
+*.a
+.cache/
+compile_commands.json
+__pycache__/
+*.pyc
+figures/
+results/
+
+# Local agent scratch, never part of the project
+CLAUDE.md
+AGENTS.md
+PLAN.md
+PLAN-REVIEW-LOG.md
+.claude/
+.codex/
