@@ -1,0 +1,117 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / ${{ matrix.cc }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPLIDAR_WERROR=ON
+
+      # The compiler diagnostics go into the job summary and come back as an
+      # annotation when the build breaks, so a failed run says what broke
+      # instead of only reporting an exit code.
+      - name: Build
+        run: |
+          set +e
+          cmake --build build --parallel 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### Build output"
+              echo '```'
+              tail -c 60000 build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            python3 -c "import re;log=open('build.log',errors='replace').read();hits=[m.start() for m in re.finditer(r'error:|Error 1|undefined reference',log)];s=log[max(0,hits[0]-1000):hits[0]+2200] if hits else log[-2200:];print('::error title=Build failed::'+s.replace(chr(10),'%0A'))"
+          fi
+          exit "$status"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  sanitizers:
+    name: asan + ubsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The simulator indexes a fixed stack buffer from a bin computed in
+      # floating point, and the estimators walk windows that run off the ends
+      # of the histogram if the bounds are wrong by one. Both are exactly what
+      # these two catch.
+      - name: Configure with sanitizers
+        env:
+          CC: clang
+          CFLAGS: -fsanitize=address,undefined -fno-sanitize-recover=all -g
+        run: cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build-san --parallel
+
+      - name: Test
+        run: ctest --test-dir build-san --output-on-failure
+
+  cost:
+    name: cost report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release
+          -DPLIDAR_BUILD_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build-bench --parallel
+
+      # A runner is shared hardware, so these are not a regression gate. They
+      # are here so the order of magnitude in the README stays visible.
+      - name: Run
+        run: ./build-bench/bench/plidar_bench | tee -a "$GITHUB_STEP_SUMMARY"
+
+  tools:
+    name: python tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: python -m pip install --quiet numpy matplotlib
+
+      - name: Build the shared object
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPLIDAR_BUILD_TESTS=OFF
+          cmake --build build --parallel
+
+      # A short sweep rather than the published one. It proves the binding,
+      # the struct layouts and the whole pipeline still work; reproducing the
+      # figure takes a couple of minutes and belongs on a workstation.
+      - name: Run a reduced sweep
+        working-directory: tools
+        run: |
+          python sweep_photons.py --trials 20 --points 5 --out /tmp/photons.csv
+          python sweep_pileup.py --out /tmp/pileup.csv
+
+      - name: Check the README against the published data
+        run: python tools/check_readme.py
