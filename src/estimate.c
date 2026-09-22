@@ -63,7 +63,10 @@ static size_t scan_max(const double *counts, size_t nbins, const double *weight,
                        size_t h, double *best_out)
 {
     size_t best = h;
-    double best_val = -INFINITY;
+    /* -HUGE_VAL rather than -INFINITY: the latter is a float in C99, and
+     * widening it to a double is a promotion that clang refuses under
+     * -Wdouble-promotion. HUGE_VAL is a double to begin with. */
+    double best_val = -HUGE_VAL;
 
     for (size_t s = h; s + h < nbins; s++) {
         const double v = weighted(counts, weight, h, s);
@@ -110,7 +113,7 @@ plidar_status_t plidar_est_centroid(const plidar_scene *tmpl, const double *coun
 {
     size_t peak = 0u;
     size_t lo, hi, hw, nwin;
-    double best = -INFINITY;
+    double best = -HUGE_VAL;
     double total = 0.0, win_sum = 0.0, bg = 0.0;
     double num = 0.0, den = 0.0;
 
