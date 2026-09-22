@@ -104,9 +104,17 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPLIDAR_BUILD_TESTS=OFF
           cmake --build build --parallel
 
-      # A short sweep rather than the published one. It proves the binding,
-      # the struct layouts and the whole pipeline still work; reproducing the
-      # figure takes a couple of minutes and belongs on a workstation.
+      # Structures cross the boundary by memory layout, and ctypes will read
+      # whatever sits at the offset it computed. A field added to a header
+      # without the same change in plidar.py produces no error from either
+      # side, only wrong numbers, so the layouts are compared entry by entry.
+      - name: Check the ctypes layouts against the headers
+        working-directory: tools
+        run: python check_bindings.py
+
+      # A short sweep rather than the published one. It proves the binding and
+      # the whole pipeline still work; reproducing the figure takes a couple
+      # of minutes and belongs on a workstation.
       - name: Run a reduced sweep
         working-directory: tools
         run: |

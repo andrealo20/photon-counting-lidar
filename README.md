@@ -3,7 +3,7 @@
 [![ci](https://github.com/andrealo20/photon-counting-lidar/actions/workflows/ci.yml/badge.svg)](https://github.com/andrealo20/photon-counting-lidar/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![language: C99](https://img.shields.io/badge/language-C99-00599C.svg)](https://en.wikipedia.org/wiki/C99)
-[![tests: 46 passing](https://img.shields.io/badge/tests-46%20passing-brightgreen.svg)](tests/)
+[![tests: 49 passing](https://img.shields.io/badge/tests-49%20passing-brightgreen.svg)](tests/)
 [![sanitizers: ASan + UBSan](https://img.shields.io/badge/sanitizers-ASan%20%2B%20UBSan-brightgreen.svg)](.github/workflows/ci.yml)
 [![no malloc](https://img.shields.io/badge/allocation-none-informational.svg)](#memory)
 
@@ -74,15 +74,27 @@ bins, accumulated over two million cycles, must land within five standard
 deviations of its degrees of freedom, and it does for both response shapes and
 with pile up on or off.
 
-**The pile up correction round trips exactly.** Distorting a known set of rates
-and inverting the distortion returns them to twelve significant figures, at
-detection rates up to a quarter per cycle where the distortion is severe.
+A comparison is only worth as much as its power to fail, so that is measured
+too. At the six percent detection rate of those cases, removing the pile up
+term from the analytic model altogether moves the statistic by 4.3 standard
+deviations, which the five sigma gate would let through. The rate is what fixes
+that: one case runs at 36 percent, where the same deliberate error moves it by
+987. Both the agreement and the control are asserted.
 
-**The bound is computed twice.** The Fisher information comes from the analytic
-derivative of the binned response, and is checked against the curvature of the
-expected log likelihood taken by finite difference, which uses none of those
-derivatives. They agree to within one percent, which is the truncation error of
-the difference.
+**The pile up correction round trips exactly.** Distorting a known set of rates
+and inverting the distortion returns them to twelve significant figures, at a
+detection rate of 19 percent per cycle where the distortion is severe.
+
+**The bound is computed twice, and the difference is accounted for.** The
+Fisher information comes from the analytic derivative of the binned response
+and is checked against the curvature of the expected log likelihood taken by
+finite difference, which uses none of those derivatives. They agree to four
+parts in ten thousand. That the remainder is the truncation error of the
+difference rather than a disagreement is settled by doubling the step, which
+has to quadruple it and does. The three parameter bound goes through a cofactor
+that the curvature check never touches, so it is inverted a second way as well,
+after rescaling the matrix to a unit diagonal, and the two agree to the last
+bit.
 
 **The estimators are measured against the bound, not against each other.** Four
 hundred independent realisations per photon budget, with the realisations that
@@ -90,15 +102,30 @@ landed on the wrong peak counted separately rather than averaged in.
 
 | signal photons | bound | maximum likelihood | matched filter | centroid |
 |---|---|---|---|---|
-| 10 | 5.30 mm | 5.98 mm (0.5% lost) | 16.58 mm (0.5% lost) | 27.77 mm (7.5% lost) |
-| 100 | 1.68 mm | 1.60 mm | 1.99 mm | 19.62 mm |
-| 1000 | 0.53 mm | 0.53 mm | 0.68 mm | 19.55 mm |
-| 10000 | 0.17 mm | 0.17 mm | 0.21 mm | 19.53 mm |
+| 10 | 5.30 mm | 5.98 mm (0.5% lost) | 16.58 mm (0.5% lost) | 21.04 mm (9.3% lost) |
+| 100 | 1.68 mm | 1.60 mm | 1.99 mm | 19.66 mm |
+| 1000 | 0.53 mm | 0.53 mm | 0.68 mm | 19.57 mm |
+| 10000 | 0.17 mm | 0.17 mm | 0.21 mm | 19.60 mm |
 
 Errors are root mean square over the realisations that found the return; "lost"
 is the fraction that did not. At 100 photons the measured value is 4% under the
 bound, which is within the sampling error of 400 realisations and not a claim
 that the bound was beaten.
+
+The detector in that sweep records one photon per cycle, so the sweep runs the
+pile up correction before the estimators, which is what their documentation
+asks for and what keeps the comparison honest: the bound is derived for an
+undistorted histogram, so measuring an estimator against it while feeding that
+estimator a distorted one would charge the estimator for a systematic the bound
+knows nothing about. Uncorrected, that systematic reaches a quarter of the
+bound at the top of the sweep. Corrected, the residual bias there is 0.9 um,
+half a percent of it.
+
+One approximation is left and is worth naming. First photon counts are
+multinomial across bins rather than independent Poisson, so the corrected
+histogram is not quite the model the bound assumes. At the two percent
+detection rate used here the difference is far below the sampling error of 400
+realisations, but it is an approximation rather than an identity.
 
 ### Why the likelihood curve leaves the bound
 
@@ -108,8 +135,11 @@ fluctuation and the search took it. This is the threshold effect familiar from
 delay estimation, it is not an implementation defect, and no unbiased estimator
 avoids it: the Cramer Rao bound describes local curvature and says nothing
 about a competing peak elsewhere. The coarse stage of the search deliberately
-scans the whole repetition period so that this can be observed instead of
-being designed away.
+scans every candidate the template fits behind, rather than a neighbourhood of
+the matched filter peak, so that this can be observed instead of being designed
+away. That is not quite the whole period: a return within a template half width
+of either end has no room for the window, which costs about half a metre at
+each end of the fifteen metre range.
 
 ### Pile up, as a distance
 
@@ -132,15 +162,15 @@ a tenth of a millimetre.
 
 ## Cost
 
-Release build, one core.
+Release build, processor time on one core.
 
 | step | work | time | rate |
 |---|---|---|---|
-| simulate | 2 000 000 cycles | 29.7 ms | 67.3 Mcycle/s |
-| correct pile up | 2000 bins | 6.2 us | 322 Mbin/s |
-| matched filter | 2000 bins | 35 us | 28 900 estimates/s |
-| maximum likelihood | 2000 bins, 18 amplitude updates | 202 us | 4950 estimates/s |
-| Fisher information | 2000 bins | 60 us | 16 700 evaluations/s |
+| simulate | 2 000 000 cycles | 23.5 ms | 85 Mcycle/s |
+| correct pile up | 2000 bins | 6.3 us | 318 Mbin/s |
+| matched filter | 2000 bins | 26 us | 37 900 estimates/s |
+| maximum likelihood | 2000 bins, 18 amplitude updates | 231 us | 4330 estimates/s |
+| Fisher information | 2000 bins | 68 us | 14 600 evaluations/s |
 
 Regenerate with `./build/bench/plidar_bench`.
 
@@ -165,8 +195,8 @@ cd tools && python sweep_photons.py --trials 400 && python make_figures.py
 ```
 include/plidar/   public headers, one per concern
 src/              the library, C99, no allocation
-tests/            46 tests over six modules
-tools/            ctypes binding, sweeps, figures
+tests/            49 tests over six modules
+tools/            ctypes binding, layout check, sweeps, figures
 bench/            the cost report above
 docs/design.md    the derivations and the choices behind them
 docs/data/        the csv files the tables and figures come from

@@ -78,13 +78,43 @@ Below it, the Mills ratio expansion
     log Phi(x) = -x^2/2 - log(sqrt(2 pi)) - log(-x)
                  + log( 1 - 1/x^2 + 3/x^4 - 15/x^6 + 105/x^8 - 945/x^10 )
 
-is used. At the threshold the first dropped term is around 1e-12 relative.
+is used. At the threshold the first dropped term is 10395/x^12, which is 2e-14
+relative, and an asymptotic series is bounded by its first omitted term.
 
-The far tail of F is computed as a difference of two nearly equal numbers and
-loses relative precision there. It is not worth fixing: what the caller does
-with it is a bin mass, and the absolute error is at the level of the values
-themselves, which are negligible against the background that is always added
-to them.
+One more cancellation hides in the same expression and is worse than it looks.
+For a tail time constant far below the jitter, v^2/2 appears once with a plus
+sign and once inside log Phi with a minus sign, and the two should cancel
+exactly. Adding them and subtracting again throws away every digit they share:
+by v = 1e5 the fifth significant figure is gone, by v = 1e8 the answer is 40
+percent high, and past v = 1e154 it is a not a number. No detector has such a
+ratio, but a sweep that drives tau towards zero to watch the response become
+Gaussian passes through all of them. Doing the cancellation on paper leaves
+
+    v^2/2 - t/tau + log Phi(a - v) = -a^2/2 - log(sqrt(2 pi)) - log(v - a) + log(S)
+
+using a*v = t/tau, with S the Mills series, and nothing large is left in it.
+
+### Bin masses in the far tail
+
+Taking a bin mass as F(hi) - F(lo) works while the two values are away from
+one. In the right tail they are not: once the remaining mass drops below the
+spacing of doubles near one, both ends round to the same number and the mass
+comes out as exactly zero. The derivative of that same mass is a difference of
+two densities, which keeps its precision for another fifteen orders of
+magnitude.
+
+A bin with zero mass and a nonzero derivative is not a rounding nuisance. The
+Fisher information divides the square of the derivative by the mass, so with a
+small background in the denominator instead, those bins invent information that
+is not there, and the bound becomes discontinuous as the background goes to
+zero.
+
+So the mass is taken from the distribution function left of the centre and from
+the survival function right of it, with the one bin that straddles the centre
+paying for the changeover. Subtracting two small numbers keeps their relative
+precision; subtracting two numbers near one does not. The survival function has
+no cancellation of its own: for the Gaussian it is erfc read from the other
+side, and for the EMG it is Phi(-a) plus the tail term, both positive.
 
 ## 3. Pile up and its inverse
 
@@ -147,6 +177,14 @@ degrees of freedom. Seeds are fixed, so the test passes every time or fails
 every time. A statistical test that is flaky in continuous integration is worse
 than no test at all.
 
+The gate is only worth what it can catch, and that depends on the scene rather
+than on the number of cycles. At six percent of cycles recording, deleting the
+pile up term from the analytic model outright moves the statistic by 4.3
+standard deviations, which passes. So one case is run at 36 percent, where the
+same deliberate error moves it by 987, and the test asserts both the agreement
+with the right model and the disagreement with the wrong one. Without the
+second half, the first is a comparison whose power is unknown.
+
 Thinning against a constant envelope was the first approach and was discarded.
 It works, but it evaluates the density pointwise, which is exactly the code the
 parity test is supposed to be checking, and with a narrow response in a long
@@ -166,7 +204,7 @@ bias, and a system that does not model the tail does not know the mean either.
 sub bin resolution by fitting a parabola to the three correlation values around
 it. Uses the shape, so the tail no longer biases it. Optimal when the noise is
 additive and Gaussian, which this noise is not, and the figure in the README
-shows the resulting gap of roughly twenty percent in standard deviation.
+shows the resulting gap of about a quarter in standard deviation.
 
 **Maximum likelihood.** With counts Poisson of mean A*g_i(t0) + B, maximise
 
@@ -198,12 +236,18 @@ cheap, the bracket is small, and there is no Hessian to keep positive definite.
    taken once, which is what makes a full scan affordable.
 3. Coordinate ascent from the winner.
 
-Stage two covers the entire period rather than a neighbourhood of stage one,
-and that is deliberate. A local search would be faster and would hide the
-behaviour this repository exists to measure: below a certain photon budget a
-background fluctuation carries a higher likelihood than the return does, and
-the estimate lands metres away. An estimator that is not allowed to make that
-mistake cannot be shown making it.
+Stage two covers every candidate whose window fits inside the record, rather
+than a neighbourhood of stage one, and that is deliberate. A local search would
+be faster and would hide the behaviour this repository exists to measure: below
+a certain photon budget a background fluctuation carries a higher likelihood
+than the return does, and the estimate lands metres away. An estimator that is
+not allowed to make that mistake cannot be shown making it.
+
+It is not the whole period, and the README says so as well. Candidates run from
+bin h to bin nbins-h-1, so a return within a template half width of either end
+is unreachable: 1.575 ns at each end here, about half a metre of the fifteen
+the period allows. That is a property of a finite record rather than of the
+search, but it is a limit and not a rounding.
 
 ### Cost
 
@@ -214,9 +258,10 @@ pass over the histogram per candidate offset, and a maximum likelihood estimate
 over two thousand bins takes around two hundred microseconds.
 
 Truncating the template puts a small amount of signal mass outside the window,
-where the model treats it as background. For a Gaussian this is beyond
-reckoning; for the tailed response it is around one part in ten thousand, which
-is well under the statistical error at any photon budget the bound allows.
+where the model treats it as background. For the response and bins used here
+the half width is 31 bins, or 1.575 ns, and the mass beyond it is 1.4e-5 on the
+tail side and 6e-154 on the other. Both are well under the statistical error at
+any photon budget the bound allows.
 
 ## 6. The bound
 
@@ -237,9 +282,19 @@ the bound does not inherit a step size.
 Two bounds are reported. The one usually quoted takes the amplitudes as known
 and is 1/I_00. The one that describes what the estimator in this library
 actually does takes all three as unknown and is the top left entry of the
-inverse. Estimating the nuisance parameters cannot help, so the second is never
-below the first; with a thousand bins of background to fix the level from, it is
-not much above it either, around four percent for the scenes here.
+inverse.
+
+They turn out to be the same number to the last bit, and the reason is a
+symmetry rather than a coincidence. The derivative of a symmetric response is
+odd about the peak while the response itself is even, so the (t0, A) entry is a
+sum of an odd quantity against an even weight and vanishes; the (t0, B) entry
+is a sum of the derivative alone, which telescopes to nothing across a grid
+that covers the response. An orthogonal nuisance parameter is free. The tailed
+response breaks the first argument and the answer does not move, because the
+second still holds over a record this long.
+
+Both are still computed and reported, because the symmetry is a property of
+these scenes and not of the formula.
 
 ### The zero background case
 
@@ -260,11 +315,11 @@ with everything known, which is what the background free limit should give.
 | test module | what it would catch |
 |---|---|
 | rng | a generator whose streams are not distinct, or whose variates have the wrong moments |
-| irf | an error in the closed forms of section 2, an overflow in the tails, a derivative that does not match the function it claims to differentiate |
+| irf | an error in the closed forms of section 2, an overflow in the tails, a derivative that does not match the function it claims to differentiate, a cancellation that eats the answer as the tail narrows |
 | coates | an inverse that does not invert, a saturation reported as a number |
-| parity | an error anywhere in either simulator, since they would have to be wrong in the same way to agree |
+| parity | an error anywhere in either simulator, since they would have to be wrong in the same way to agree, with a control that measures how much the comparison could catch |
 | estimate | an estimator that does not recover the parameters from its own noiseless forward model |
-| crb | an information matrix that does not match the curvature of the likelihood it came from |
+| crb | an information matrix that does not match the curvature of the likelihood it came from, and a three by three inverse that does not survive being taken a second way |
 
 The tolerances in the response tests are set by the finite differences in the
 tests, not by the library. A central difference carries a truncation error of
