@@ -41,8 +41,12 @@ def photons_figure(rows, out: Path) -> None:
     for values in by.values():
         values.sort(key=lambda r: int(r["photons"]))
 
+    # Kept small on purpose. A figure that renders at 900 px in a README
+    # fills the column and pushes everything else off the first screen, so
+    # the canvas is sized for the width it will actually be shown at and the
+    # text is scaled to stay legible there.
     fig, (ax, ax2) = plt.subplots(
-        2, 1, figsize=(7.2, 7.0), sharex=True,
+        2, 1, figsize=(6.0, 4.6), sharex=True,
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.08})
 
     bound = by["mle"]
@@ -59,18 +63,21 @@ def photons_figure(rows, out: Path) -> None:
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_ylabel("depth error, mm (realisations that found the return)")
+    ax.set_ylabel("depth error, mm", fontsize=10)
     ax.grid(True, which="both", alpha=0.25)
-    ax.legend(frameon=False)
-    ax.set_title("Depth precision against photon budget, signal to background 1")
+    ax.legend(frameon=False, fontsize=9)
+    ax.set_title("Depth error against photon budget, signal to background 1",
+                 fontsize=10)
+    ax.tick_params(labelsize=9)
 
     ax2.set_xscale("log")
-    ax2.set_xlabel("detected signal photons")
-    ax2.set_ylabel("lost, %")
+    ax2.set_xlabel("detected signal photons", fontsize=10)
+    ax2.set_ylabel("lost, %", fontsize=10)
     ax2.grid(True, which="both", alpha=0.25)
+    ax2.tick_params(labelsize=9)
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=150, bbox_inches="tight")
+    fig.savefig(out, dpi=130, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {out}")
 

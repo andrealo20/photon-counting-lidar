@@ -8,97 +8,73 @@
 [![no malloc](https://img.shields.io/badge/allocation-none-informational.svg)](#memory)
 
 **Depth estimation from single photon arrival times, with the detector modelled
-as it actually behaves and every estimator measured against the Cramer Rao
-bound rather than against itself.**
+as it behaves and every estimator measured against the Cramer Rao bound.**
 
-A lidar that counts single photons never sees a waveform. For each laser pulse
-it gets, at best, one timestamp, and usually nothing at all. The distance
-exists only as a statistic accumulated over millions of pulses, which makes the
-question interesting: given a histogram of arrival times, how well can the
-distance be read out, and how close does a given estimator get to that limit?
+A lidar that counts single photons never sees a waveform. Each laser pulse
+returns one timestamp at best and usually nothing, so the distance exists only
+as a statistic built up over millions of pulses.
 
-![depth error against photon budget](docs/images/photons.png)
+<img src="docs/images/photons.png" alt="depth error against photon budget" width="640">
 
-With a 152 ps instrument response, worth 23 mm of range on its own, the maximum
-likelihood estimate reaches 0.17 mm from ten thousand photons and sits on the
-bound over three decades. Below about ten photons it stops doing that, for a
-reason worth understanding rather than hiding.
+The instrument response is 152 ps wide, worth 23 mm of range on its own.
+Maximum likelihood reads the distance to 0.17 mm from ten thousand photons and
+holds the bound over three decades. Below ten photons it stops, for a reason
+worth showing rather than hiding.
 
 ## The model
 
-Within each repetition period the detected photons form an inhomogeneous
-Poisson process of rate
+Detected photons within a repetition period are an inhomogeneous Poisson
+process of rate
 
 ```
 lambda(t) = eta * ( S * irf(t - t0) + B )
 ```
 
 with t0 = 2d/c the time of flight, S the signal photons a cycle delivers, B the
-rate of ambient light and dark counts, and eta the detection efficiency. Counts
-in bin i over M cycles are Poisson with mean M*mu_i. Four things about a real
-instrument are in the forward model and change the answer:
+ambient and dark count rate, and eta the detection efficiency. Counts over M
+cycles are Poisson with mean M*mu_i. Four properties of a real detector are in
+the model, and each one moves the answer:
 
-**The response is not symmetric.** A single photon avalanche diode has a
-Gaussian core from avalanche and electronics jitter, plus an exponential tail
-from carriers that reach the multiplication region by diffusion. The pair is an
-exponentially modified Gaussian. This is why the centroid curve above flattens
-at 19.5 mm and stays there no matter how many photons arrive: that is a bias,
-not noise, and it is close to the 21 mm the tail constant is worth.
-
-**One record per cycle.** Classic timing electronics keep the first photon and
-discard the rest, so early photons mask late ones and the histogram leans
-early. The distance comes out short. The effect has an exact inverse, published
-by Coates in 1968, and the library implements it.
-
-**Dead time.** After a detection the diode is blind for tens of nanoseconds,
-which is comparable to the repetition period, so the blindness carries across
-cycle boundaries. Non paralyzable and paralyzable quenching are both modelled.
-
-**Afterpulsing.** Trapped carriers released later produce spurious counts
-correlated with an earlier detection.
+- **An asymmetric response**, a Gaussian core from jitter plus an exponential
+  tail from carriers that arrive by diffusion. That tail is why the centroid
+  curve flattens at 19.6 mm however many photons arrive: a bias, not noise.
+- **One record per cycle**, so early photons mask late ones and the distance
+  comes out short. Coates published the exact inverse in 1968.
+- **Dead time**, tens of nanoseconds against a hundred nanosecond period, so it
+  carries across cycle boundaries. Paralyzable and non paralyzable both.
+- **Afterpulsing**, spurious counts correlated with an earlier detection.
 
 ## Verification
 
-The library is checked against closed forms, against its own independent
-reimplementation, and against a bound. Nothing in the results above rests on an
-estimator being compared with itself.
+Nothing below compares an estimator with itself.
 
-**The simulator exists twice.** One path evaluates the response distribution
-function and applies the first photon expression in closed form. The other
-draws a Poisson count of photons per cycle and places each one from the way the
-exponentially modified Gaussian is constructed, a normal jitter plus a
-diffusion delay, then runs them through the detector model. The two share the
-response parameters and nothing else: the second never evaluates the
-distribution function or the density. A Pearson statistic over about a thousand
-bins, accumulated over two million cycles, must land within five standard
-deviations of its degrees of freedom, and it does for both response shapes and
-with pile up on or off.
+**The simulator exists twice.** One path works from the response distribution
+function and the closed form for pile up. The other draws photons per cycle,
+places each from the construction of the distribution, and runs them through
+the detector. The second never evaluates the distribution function or the
+density, so a Pearson statistic between the two tests the closed forms rather
+than two spellings of one routine. It has to land within five standard
+deviations of its degrees of freedom.
 
-A comparison is only worth as much as its power to fail, so that is measured
-too. At the six percent detection rate of those cases, removing the pile up
-term from the analytic model altogether moves the statistic by 4.3 standard
-deviations, which the five sigma gate would let through. The rate is what fixes
-that: one case runs at 36 percent, where the same deliberate error moves it by
-987. Both the agreement and the control are asserted.
+A gate is only worth its power to fail, so that is measured too. At six percent
+of cycles recording, deleting the pile up term outright moves the statistic by
+4.3 standard deviations and would pass, so one case runs at 36 percent, where
+the same error moves it by 987. Both the agreement and the control are
+asserted.
 
-**The pile up correction round trips exactly.** Distorting a known set of rates
-and inverting the distortion returns them to twelve significant figures, at a
-detection rate of 19 percent per cycle where the distortion is severe.
+**The pile up inverse round trips** to twelve significant figures at 19 percent
+of cycles detecting.
 
-**The bound is computed twice, and the difference is accounted for.** The
-Fisher information comes from the analytic derivative of the binned response
-and is checked against the curvature of the expected log likelihood taken by
-finite difference, which uses none of those derivatives. They agree to four
-parts in ten thousand. That the remainder is the truncation error of the
-difference rather than a disagreement is settled by doubling the step, which
-has to quadruple it and does. The three parameter bound goes through a cofactor
-that the curvature check never touches, so it is inverted a second way as well,
-after rescaling the matrix to a unit diagonal, and the two agree to the last
-bit.
+**The bound is computed twice.** The Fisher information is checked against the
+curvature of the expected log likelihood taken by finite difference, which uses
+none of the analytic derivatives. They agree to four parts in ten thousand, and
+doubling the step quadruples the difference, which is what makes it truncation
+error rather than disagreement. The three parameter bound is inverted a second
+way as well, after rescaling the matrix to a unit diagonal.
 
-**The estimators are measured against the bound, not against each other.** Four
-hundred independent realisations per photon budget, with the realisations that
-landed on the wrong peak counted separately rather than averaged in.
+**The estimators are measured against the bound**, over four hundred
+realisations per photon budget, with the ones that landed on the wrong peak
+counted separately instead of averaged in.
 
 | signal photons | bound | maximum likelihood | matched filter | centroid |
 |---|---|---|---|---|
@@ -107,72 +83,30 @@ landed on the wrong peak counted separately rather than averaged in.
 | 1000 | 0.53 mm | 0.53 mm | 0.68 mm | 19.57 mm |
 | 10000 | 0.17 mm | 0.17 mm | 0.21 mm | 19.60 mm |
 
-Errors are root mean square over the realisations that found the return; "lost"
-is the fraction that did not. At 100 photons the measured value is 4% under the
-bound, which is within the sampling error of 400 realisations and not a claim
-that the bound was beaten.
+Root mean square over the realisations that found the return. The sweep applies
+the pile up correction first, as the estimators require: uncorrected, that
+systematic reaches a quarter of the bound at the top of the sweep.
 
-The detector in that sweep records one photon per cycle, so the sweep runs the
-pile up correction before the estimators, which is what their documentation
-asks for and what keeps the comparison honest: the bound is derived for an
-undistorted histogram, so measuring an estimator against it while feeding that
-estimator a distorted one would charge the estimator for a systematic the bound
-knows nothing about. Uncorrected, that systematic reaches a quarter of the
-bound at the top of the sweep. Corrected, the residual bias there is 0.9 um,
-half a percent of it.
-
-One approximation is left and is worth naming. First photon counts are
-multinomial across bins rather than independent Poisson, so the corrected
-histogram is not quite the model the bound assumes. At the two percent
-detection rate used here the difference is far below the sampling error of 400
-realisations, but it is an approximation rather than an identity.
-
-### Why the likelihood curve leaves the bound
-
-Below about ten photons the estimate is sometimes metres out rather than
-millimetres. The likelihood surface has grown a second maximum on a background
-fluctuation and the search took it. This is the threshold effect familiar from
-delay estimation, it is not an implementation defect, and no unbiased estimator
-avoids it: the Cramer Rao bound describes local curvature and says nothing
-about a competing peak elsewhere. The coarse stage of the search deliberately
-scans every candidate the template fits behind, rather than a neighbourhood of
-the matched filter peak, so that this can be observed instead of being designed
-away. That is not quite the whole period: a return within a template half width
-of either end has no room for the window, which costs about half a metre at
-each end of the fifteen metre range.
+Below ten photons the likelihood grows a second maximum on a background
+fluctuation and the search sometimes takes it. That is the threshold effect
+from delay estimation rather than a defect, and the coarse search covers the
+whole record so that it can be seen.
 
 ### Pile up, as a distance
 
-Exact expected histograms, no noise, so what is left is the systematic error
-alone. Generated by `tools/sweep_pileup.py`.
+Exact expected histograms, no noise, so only the systematic is left. From
+`tools/sweep_pileup.py`.
 
 | detections per cycle | uncorrected | after Coates |
 |---|---|---|
 | 4.4% | -0.063 mm | +0.14 um |
-| 12.6% | -0.189 mm | +0.14 um |
 | 25.9% | -0.610 mm | +0.14 um |
-| 41.7% | -1.197 mm | +0.14 um |
 | 59.3% | -2.307 mm | +0.14 um |
 | 80.8% | -4.332 mm | +0.14 um |
 
-The residual after correction is the tolerance of the search for the peak, not
-anything left of the physics. The customary advice to keep the detection rate
-under a few percent per pulse is visible in the first row: it buys a bias below
-a tenth of a millimetre.
-
-## Cost
-
-Release build, processor time on one core.
-
-| step | work | time | rate |
-|---|---|---|---|
-| simulate | 2 000 000 cycles | 23.5 ms | 85 Mcycle/s |
-| correct pile up | 2000 bins | 6.3 us | 318 Mbin/s |
-| matched filter | 2000 bins | 26 us | 37 900 estimates/s |
-| maximum likelihood | 2000 bins, 18 amplitude updates | 231 us | 4330 estimates/s |
-| Fisher information | 2000 bins | 68 us | 14 600 evaluations/s |
-
-Regenerate with `./build/bench/plidar_bench`.
+The residual is the tolerance of the search, not physics left over. The first
+row is the usual advice to stay under a few percent per pulse, and what it buys
+is a bias below a tenth of a millimetre.
 
 ## Build
 
@@ -182,51 +116,34 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-The sweeps and figures are Python, and they drive the same shared object the
-tests are built from rather than reimplementing anything:
+The sweeps and figures are Python and drive the same shared object the tests
+are built from:
 
 ```bash
 python -m pip install numpy matplotlib
 cd tools && python sweep_photons.py --trials 400 && python make_figures.py
 ```
 
-## Layout
-
-```
-include/plidar/   public headers, one per concern
-src/              the library, C99, no allocation
-tests/            49 tests over six modules
-tools/            ctypes binding, layout check, sweeps, figures
-bench/            the cost report above
-docs/design.md    the derivations and the choices behind them
-docs/data/        the csv files the tables and figures come from
-```
+One core, release build: 85 Mcycle/s simulated, 4330 maximum likelihood
+estimates per second over 2000 bins. `./build/bench/plidar_bench` prints the
+full table. The derivations are in [docs/design.md](docs/design.md).
 
 ## Memory
 
-Nothing in the library allocates. Buffers are caller owned, and the routines
-that need working space take it as an argument and document how much. The
-Monte Carlo path holds one cycle of arrivals on the stack and reports a domain
-error rather than growing if a scene is bright enough to exceed it.
+Nothing allocates. Working space is caller owned and its size documented, and
+the simulator reports a domain error rather than growing if a cycle delivers
+more photons than its stack buffer holds.
 
-## Limitations
+## What it does not do
 
-Worth stating plainly, since none of them are hidden in the code:
-
-- Everything here is simulated. The forward model is built from the physics and
-  cross checked against itself, but it has not been compared with a recorded
-  measurement. Validating it against a public time correlated single photon
-  counting trace, with a documented response and known parameters, is the
-  obvious next step.
-- One surface per pixel. Fog, foliage or a window in front of the target put
-  two returns in the same histogram, which turns the problem into deciding how
-  many surfaces there are before estimating where they sit.
-- Returns beyond the unambiguous range are dropped rather than folded back.
-  Both simulator paths drop them identically, so the parity argument is
-  unaffected, but a scene with the target near the end of the period is not
-  meaningful.
-- The estimators assume the response is known. A response fitted from a
-  calibration measurement carries its own uncertainty, which is not propagated.
+- Everything is simulated. The model is cross checked against itself and
+  against closed forms, never against a recorded measurement. Comparing it with
+  a public time correlated single photon counting trace is the next step.
+- One surface per pixel. Fog or foliage puts two returns in one histogram,
+  which first makes it a question of how many surfaces there are.
+- Returns past the unambiguous range are dropped rather than folded back.
+- The response is taken as known, so a calibration's own uncertainty is not
+  propagated.
 
 ## Licence
 
