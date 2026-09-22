@@ -66,9 +66,11 @@ def main() -> int:
         raw = lib.mle(scene, distorted, CYCLES, scratch)
 
         # Coates takes a recorded histogram and returns rates per cycle, so
-        # the cycles go back on before the estimator sees it.
-        as_counts = np.rint(distorted).astype(np.uint64)
-        restored = lib.coates(as_counts, int(CYCLES)) * CYCLES
+        # the cycles go back on before the estimator sees it. The double
+        # form is used rather than the integer one: rounding the expected
+        # histogram to whole counts first would put a quantisation error into
+        # the residual, and the residual is the number this table is about.
+        restored = lib.coates_d(distorted, CYCLES) * CYCLES
         fixed = lib.mle(scene, restored, CYCLES, scratch)
 
         detections = 1.0 - math.exp(

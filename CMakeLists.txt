@@ -68,6 +68,7 @@ if(PLIDAR_SHARED)
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(plidar_shared PRIVATE -Wall -Wextra -Wpedantic)
     endif()
+    add_subdirectory(tools)
 endif()
 
 if(PLIDAR_BENCH)

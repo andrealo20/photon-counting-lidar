@@ -115,8 +115,12 @@ def _find_library(explicit: str | None) -> Path:
 
     root = Path(__file__).resolve().parent.parent
     name = _library_name()
-    for candidate in sorted(root.glob(f"build*/**/{name}")):
-        return candidate
+    # Newest wins. A tree often holds more than one build directory, and the
+    # alphabetically first one is as likely to be a stale sanitizer build as
+    # the release build the caller just made.
+    candidates = list(root.glob(f"build*/**/{name}"))
+    if candidates:
+        return max(candidates, key=lambda p: p.stat().st_mtime)
     raise FileNotFoundError(
         f"{name} not found under {root}. Configure and build first, or set "
         "PLIDAR_LIB to the shared object."
@@ -125,6 +129,34 @@ def _find_library(explicit: str | None) -> Path:
 
 _D = POINTER(c_double)
 _U64 = POINTER(c_uint64)
+
+
+def _buffer(array, dtype, name: str, minimum: int = 0):
+    """Hand a numpy array to C only once it is the thing C expects.
+
+    ctypes will take the address of anything and the C side will read it as
+    whatever the signature says. Passing an array of the wrong width, a
+    strided view, or a scratch buffer shorter than the routine documents
+    produces no error from either side: C reads or writes past the
+    allocation and the sweep carries on with numbers that look plausible.
+    Checking here costs one comparison per call.
+    """
+    import numpy as np
+
+    pointer = _D if dtype == np.float64 else _U64
+    if not isinstance(array, np.ndarray):
+        raise TypeError(f"{name} must be a numpy array, not {type(array).__name__}")
+    if array.dtype != dtype:
+        raise TypeError(f"{name} must have dtype {np.dtype(dtype).name}, "
+                        f"not {array.dtype.name}")
+    if array.ndim != 1:
+        raise ValueError(f"{name} must be one dimensional, not {array.ndim}")
+    if not array.flags["C_CONTIGUOUS"]:
+        raise ValueError(f"{name} must be contiguous; pass numpy.ascontiguousarray")
+    if array.size < minimum:
+        raise ValueError(f"{name} holds {array.size} entries, the call needs "
+                         f"at least {minimum}")
+    return array.ctypes.data_as(pointer)
 
 
 class Plidar:
@@ -157,6 +189,9 @@ class Plidar:
 
         f.plidar_coates_invert.argtypes = [_U64, c_uint64, _D, c_size_t]
         f.plidar_coates_invert.restype = c_int
+
+        f.plidar_coates_invert_d.argtypes = [_D, c_double, _D, c_size_t]
+        f.plidar_coates_invert_d.restype = c_int
 
         f.plidar_est_centroid.argtypes = [
             POINTER(Scene), _D, c_size_t, c_double, POINTER(Estimate)
@@ -269,43 +304,73 @@ class Plidar:
         out = np.zeros(hist.size, dtype=np.float64)
         _check(
             self.lib.plidar_coates_invert(
-                hist.ctypes.data_as(_U64), c_uint64(cycles),
+                _buffer(hist, np.uint64, "hist"), c_uint64(cycles),
                 out.ctypes.data_as(_D), c_size_t(hist.size)),
             "coates_invert")
         return out
 
+    def coates_d(self, hist, cycles: float):
+        """Coates on a histogram held as doubles.
+
+        The integer form rounds; this one does not, which is what a table of
+        systematic error needs if the residual is to mean the search
+        tolerance and nothing else.
+        """
+        import numpy as np
+
+        out = np.zeros(hist.size, dtype=np.float64)
+        _check(
+            self.lib.plidar_coates_invert_d(
+                _buffer(hist, np.float64, "hist"), c_double(cycles),
+                out.ctypes.data_as(_D), c_size_t(hist.size)),
+            "coates_invert_d")
+        return out
+
     def centroid(self, scene: Scene, counts, half_window: float) -> Estimate:
+        import numpy as np
+
         est = Estimate()
         _check(
             self.lib.plidar_est_centroid(
-                byref(scene), counts.ctypes.data_as(_D), c_size_t(counts.size),
-                c_double(half_window), byref(est)),
+                byref(scene), _buffer(counts, np.float64, "counts"),
+                c_size_t(counts.size), c_double(half_window), byref(est)),
             "est_centroid")
         return est
 
     def matched(self, scene: Scene, counts, scratch) -> Estimate:
+        import numpy as np
+
         est = Estimate()
         _check(
             self.lib.plidar_est_matched(
-                byref(scene), counts.ctypes.data_as(_D), c_size_t(counts.size),
-                scratch.ctypes.data_as(_D), byref(est)),
+                byref(scene), _buffer(counts, np.float64, "counts"),
+                c_size_t(counts.size),
+                _buffer(scratch, np.float64, "scratch", counts.size),
+                byref(est)),
             "est_matched")
         return est
 
     def mle(self, scene: Scene, counts, cycles: float, scratch) -> Estimate:
+        import numpy as np
+
         est = Estimate()
         _check(
             self.lib.plidar_est_mle(
-                byref(scene), counts.ctypes.data_as(_D), c_double(cycles),
-                c_size_t(counts.size), scratch.ctypes.data_as(_D), byref(est)),
+                byref(scene), _buffer(counts, np.float64, "counts"),
+                c_double(cycles), c_size_t(counts.size),
+                _buffer(scratch, np.float64, "scratch", counts.size),
+                byref(est)),
             "est_mle")
         return est
 
     def crb(self, scene: Scene, cycles: float, scratch) -> CrbResult:
+        import numpy as np
+
         out = CrbResult()
         _check(
             self.lib.plidar_crb(
-                byref(scene), c_double(cycles), scratch.ctypes.data_as(_D),
+                byref(scene), c_double(cycles),
+                _buffer(scratch, np.float64, "scratch", 2 * scene.nbins),
                 c_size_t(scene.nbins), byref(out)),
             "crb")
         return out

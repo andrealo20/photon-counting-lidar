@@ -108,7 +108,17 @@ def main() -> int:
 
         for _ in range(args.trials):
             hist, _recorded = lib.simulate(scene, detector, CYCLES, rng)
-            counts = hist.astype(np.float64)
+
+            # The detector records one photon per cycle, so the histogram it
+            # produces is pile up distorted and the estimators say plainly
+            # that they expect it not to be. Inverting first is what the
+            # library documents, and it is also what makes the comparison
+            # below honest: the bound is derived for an undistorted Poisson
+            # histogram, so feeding the estimators a distorted one would
+            # measure a systematic error against a bound that knows nothing
+            # about it. At the top of this sweep that systematic reaches a
+            # quarter of the bound.
+            counts = lib.coates(hist, CYCLES) * CYCLES
 
             errors["centroid"].append(attempt(
                 lambda: lib.centroid(scene, counts,
