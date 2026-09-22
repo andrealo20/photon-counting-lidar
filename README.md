@@ -14,7 +14,7 @@ A lidar that counts single photons never sees a waveform. Each laser pulse
 returns one timestamp at best and usually nothing, so the distance exists only
 as a statistic built up over millions of pulses.
 
-<img src="docs/images/photons.png" alt="depth error against photon budget" width="640">
+<img src="docs/images/depth-error.png" alt="depth error against photon budget" width="620">
 
 The instrument response is 152 ps wide, worth 23 mm of range on its own.
 Maximum likelihood reads the distance to 0.17 mm from ten thousand photons and

@@ -90,7 +90,7 @@ def main() -> int:
 
     photons = args.data / "photons.csv"
     if photons.exists():
-        photons_figure(read(photons), args.images / "photons.png")
+        photons_figure(read(photons), args.images / "depth-error.png")
     else:
         print(f"{photons} not found, run tools/sweep_photons.py first")
         return 1
