@@ -134,6 +134,57 @@ static void test_emg_first_photon(void)
     run_parity(1, 1, 2000000u, 4u);
 }
 
+/*
+ * Does the parity test have the power to catch the thing it is there to
+ * catch?
+ *
+ * It is a fair question, and at the detection rate of the cases above the
+ * answer is no. Running the same observed histogram against the model with
+ * the pile up term removed entirely, at six percent of cycles recording,
+ * moves the statistic by 4.3 standard deviations, which is inside the five
+ * the gate allows. A missing pile up term would pass.
+ *
+ * The rate is what fixes that, not the number of cycles. The scene below
+ * records a photon in 36 percent of cycles, where the same control moves the
+ * statistic by 987 standard deviations. So the test is run twice: once as a
+ * parity check, which has to agree, and once against the model with pile up
+ * removed, which has to disagree by a margin that leaves no room for doubt.
+ */
+static void test_parity_can_tell_pile_up_apart(void)
+{
+    plidar_scene sc = make_scene(1);
+    plidar_detector det = ideal_detector(1);
+    plidar_rng rng;
+    const uint64_t cycles = 2000000u;
+    size_t dof = 0u;
+    double chi2, matching, mismatching;
+
+    sc.signal = 0.5;
+    sc.background = 1e7; /* together, 36 percent of cycles record something */
+
+    plidar_rng_seed(&rng, 7u, 0u);
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                          plidar_sim_mc(&sc, &det, cycles, &rng, observed, NB, NULL));
+
+    /* chi_squared fills dof, so its result is taken into a variable before
+     * sigmas_off is called. Passing both as arguments of one call would
+     * leave the compiler free to read dof first, and it does. */
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                          plidar_sim_analytic(&sc, PLIDAR_SIM_FIRST_PHOTON,
+                                              (double)cycles, expected, NB));
+    chi2 = chi_squared(&dof);
+    matching = sigmas_off(chi2, dof);
+
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                          plidar_sim_analytic(&sc, PLIDAR_SIM_IDEAL,
+                                              (double)cycles, expected, NB));
+    chi2 = chi_squared(&dof);
+    mismatching = sigmas_off(chi2, dof);
+
+    TEST_ASSERT_TRUE(fabs(matching) < 5.0);
+    TEST_ASSERT_TRUE(mismatching > 100.0);
+}
+
 static void test_detection_probability_matches_the_closed_form(void)
 {
     plidar_scene sc = make_scene(1);
@@ -192,13 +243,14 @@ static void test_dead_time_only_removes_counts(void)
     TEST_ASSERT_TRUE(with_dead < without);
 }
 
-static void test_afterpulsing_does_not_disturb_the_arrivals(void)
+static void test_afterpulsing_only_adds_counts(void)
 {
     plidar_scene sc = make_scene(1);
-    plidar_detector plain = ideal_detector(1);
-    plidar_detector noisy = ideal_detector(1);
+    plidar_detector plain = ideal_detector(0);
+    plidar_detector noisy = ideal_detector(0);
     plidar_rng rng;
     const uint64_t cycles = 200000u;
+    static uint64_t baseline[NB];
     uint64_t base_total = 0u, noisy_total = 0u;
 
     noisy.afterpulse_prob = 0.05;
@@ -206,24 +258,35 @@ static void test_afterpulsing_does_not_disturb_the_arrivals(void)
 
     plidar_rng_seed(&rng, 21u, 0u);
     TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
-                          plidar_sim_mc(&sc, &plain, cycles, &rng, observed, NB,
+                          plidar_sim_mc(&sc, &plain, cycles, &rng, baseline, NB,
                                         NULL));
-    for (size_t i = 0; i < NB; i++) {
-        base_total += observed[i];
-    }
 
     plidar_rng_seed(&rng, 21u, 0u);
     TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
                           plidar_sim_mc(&sc, &noisy, cycles, &rng, observed, NB,
                                         NULL));
+
+    /* Afterpulse draws come from their own stream, so the photons that arrive
+     * are the same ones, and with every detection recorded and no dead time
+     * every one of them still lands in the bin it landed in before. Switching
+     * afterpulsing on can therefore only add counts, never move or remove
+     * them, and checking that bin by bin is a stronger statement about the
+     * two streams being separate than comparing totals would be. */
     for (size_t i = 0; i < NB; i++) {
+        TEST_ASSERT_TRUE(observed[i] >= baseline[i]);
+        base_total += baseline[i];
         noisy_total += observed[i];
     }
+    TEST_ASSERT_TRUE(noisy_total > base_total);
 
-    /* Afterpulses are drawn from their own stream, so the photons that
-     * arrive are the same ones. With one record per cycle they cannot add
-     * counts either, since the cycle already had its record. */
-    TEST_ASSERT_EQUAL_UINT64(base_total, noisy_total);
+    /* And it adds about as many as it should: one afterpulse per twenty
+     * detections, give or take the ones whose delay lands them outside the
+     * record. */
+    {
+        const double added = (double)(noisy_total - base_total);
+        const double predicted = 0.05 * (double)base_total;
+        TEST_ASSERT_DOUBLE_WITHIN(0.2 * predicted, predicted, added);
+    }
 }
 
 static void test_scene_validation(void)
@@ -265,9 +328,10 @@ int main(void)
     RUN_TEST(test_gaussian_first_photon);
     RUN_TEST(test_emg_ideal);
     RUN_TEST(test_emg_first_photon);
+    RUN_TEST(test_parity_can_tell_pile_up_apart);
     RUN_TEST(test_detection_probability_matches_the_closed_form);
     RUN_TEST(test_dead_time_only_removes_counts);
-    RUN_TEST(test_afterpulsing_does_not_disturb_the_arrivals);
+    RUN_TEST(test_afterpulsing_only_adds_counts);
     RUN_TEST(test_scene_validation);
     RUN_TEST(test_range_and_time_of_flight_are_inverses);
     return UNITY_END();

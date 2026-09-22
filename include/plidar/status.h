@@ -3,9 +3,16 @@
  * @brief Return codes shared by every module.
  *
  * Nothing in this library allocates and nothing aborts. A function that
- * cannot honour its contract says so through a status code and leaves the
- * caller's buffers untouched, so a simulation sweep can report a bad
- * parameter combination instead of dying halfway through a run.
+ * cannot honour its contract says so through a status code, so a sweep can
+ * report a bad parameter combination and carry on instead of dying halfway
+ * through a run.
+ *
+ * A status other than PLIDAR_OK says nothing about the output buffer. Some
+ * failures are found while checking arguments, before anything is written;
+ * others are found part way through, with earlier entries already filled in.
+ * plidar_coates_invert is the clearest case: it discovers that the cycles
+ * have run out only when it reaches the bin where they do. Treat the output
+ * of a failed call as undefined rather than as unchanged.
  */
 #ifndef PLIDAR_STATUS_H
 #define PLIDAR_STATUS_H

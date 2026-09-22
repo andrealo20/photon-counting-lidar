@@ -63,7 +63,10 @@
  * Neither path wraps returns that fall past the end of the repetition
  * period: mass beyond the window is dropped rather than aliased back. Both
  * drop it the same way, so parity is unaffected, but a scene with t0 close
- * to the period is not physically meaningful here.
+ * to the period is not physically meaningful here. Afterpulses are the
+ * exception, and deliberately so: one whose delay runs past the end of its
+ * cycle is carried into the cycle it actually lands in, because the trapped
+ * carrier that produces it does not stop at the boundary.
  */
 #ifndef PLIDAR_SIM_H
 #define PLIDAR_SIM_H
@@ -96,12 +99,23 @@ typedef struct {
 /** Photons a single cycle may deliver before the simulator gives up. */
 #define PLIDAR_MC_MAX_PER_CYCLE 256u
 
+/**
+ * Afterpulses that may be waiting to land in a later cycle at any one time.
+ * An afterpulse delayed past the end of its own cycle is held until the
+ * cycle it belongs to rather than discarded, so the boundary is not visible
+ * in the statistics. Eight is far more than a detector with a plausible
+ * afterpulse probability will ever have outstanding.
+ */
+#define PLIDAR_MC_MAX_CARRIED 8u
+
 typedef struct {
     double dead_time;       /**< s, blind interval after a detection, 0 disables */
     int    paralyzable;     /**< non zero: photons arriving during the blind interval extend it */
     int    first_photon_only; /**< non zero: the TDC records one photon per cycle */
     double afterpulse_prob; /**< probability that a detection is followed by a spurious one */
-    double afterpulse_tau;  /**< s, mean delay of that spurious detection */
+    double afterpulse_tau;  /**< s, mean delay of that spurious detection. An
+                                 afterpulse is a detection like any other, so
+                                 it can produce one of its own. */
 } plidar_detector;
 
 typedef enum {

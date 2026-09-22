@@ -119,6 +119,56 @@ static void test_emg_becomes_gaussian_as_the_tail_vanishes(void)
     }
 }
 
+/*
+ * The Gaussian limit again, but pushed far enough to break an implementation
+ * that forms the two halves of the exponent separately. Writing v for
+ * sigma/tau, both halves are close to v^2/2, so adding and subtracting them
+ * throws away every digit they share: at v = 1e8 that leaves the answer
+ * wrong by tens of percent, and past v = 1e154 it overflows to a not a
+ * number. Neither ratio is physical, but a sweep that drives tau towards
+ * zero to watch the response become Gaussian passes through all of them.
+ *
+ * The tolerance is proportional to 1/v because that is the real distance
+ * between the two distributions at this ratio, the mean of the EMG being tau
+ * rather than zero.
+ */
+static void test_extreme_ratio_stays_accurate(void)
+{
+    static const double ratios[] = {1e4, 1e6, 1e8, 1e12};
+    plidar_irf g;
+
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK, plidar_irf_init_gaussian(&g, SIGMA));
+
+    for (size_t r = 0; r < sizeof(ratios) / sizeof(ratios[0]); r++) {
+        plidar_irf e;
+        const double v = ratios[r];
+        TEST_ASSERT_EQUAL_INT(PLIDAR_OK, plidar_irf_init_emg(&e, SIGMA, SIGMA / v));
+
+        for (double k = -3.0; k <= 3.0; k += 1.0) {
+            const double t = k * SIGMA;
+            const double want = plidar_irf_pdf(&g, t);
+            const double got = plidar_irf_pdf(&e, t);
+            TEST_ASSERT_DOUBLE_WITHIN((100.0 / v) * want, want, got);
+            TEST_ASSERT_DOUBLE_WITHIN(100.0 / v, plidar_irf_cdf(&g, t),
+                                      plidar_irf_cdf(&e, t));
+        }
+    }
+
+    /* And at a ratio past anything the arithmetic can hold, the answers are
+     * still numbers. */
+    {
+        plidar_irf e;
+        TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                              plidar_irf_init_emg(&e, SIGMA, SIGMA / 1e150));
+        for (double k = -3.0; k <= 3.0; k += 1.0) {
+            const double f = plidar_irf_pdf(&e, k * SIGMA);
+            const double F = plidar_irf_cdf(&e, k * SIGMA);
+            TEST_ASSERT_TRUE(isfinite(f) && f >= 0.0);
+            TEST_ASSERT_TRUE(isfinite(F) && F >= 0.0 && F <= 1.0);
+        }
+    }
+}
+
 static void test_far_tails_stay_finite(void)
 {
     plidar_irf e;
@@ -198,6 +248,7 @@ int main(void)
     RUN_TEST(test_emg_density_is_the_derivative_of_its_distribution);
     RUN_TEST(test_emg_moments_from_the_binned_shape);
     RUN_TEST(test_emg_becomes_gaussian_as_the_tail_vanishes);
+    RUN_TEST(test_extreme_ratio_stays_accurate);
     RUN_TEST(test_far_tails_stay_finite);
     RUN_TEST(test_peak_bound_is_a_bound);
     RUN_TEST(test_bin_derivative_matches_a_finite_difference);

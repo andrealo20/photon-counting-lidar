@@ -45,7 +45,15 @@ extern "C" {
 plidar_status_t plidar_coates_invert(const uint64_t *hist, uint64_t cycles,
                                      double *mu, size_t nbins);
 
-/** Same, for an already averaged histogram held as doubles. */
+/**
+ * Same, for an already averaged histogram held as doubles.
+ *
+ * The integer form above converts both the cycle count and the counts to
+ * double before subtracting, so it is exact only while both stay under 2^53.
+ * At a 10 MHz repetition rate that is about twenty eight years of continuous
+ * acquisition, but a caller working past it should use this form and do the
+ * subtraction in whatever type it can afford.
+ */
 plidar_status_t plidar_coates_invert_d(const double *hist, double cycles,
                                        double *mu, size_t nbins);
 

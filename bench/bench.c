@@ -16,11 +16,14 @@ static double hist_d[NB];
 static double scratch[2 * NB];
 static uint64_t hist_u[NB];
 
+/* clock() rather than clock_gettime(). It is plain C99, so the bench needs
+ * no feature test macro and no per platform reasoning about which one. Every
+ * figure below is a loop long enough that the coarser resolution does not
+ * show, and processor time is the more honest number for a single threaded
+ * benchmark anyway. */
 static double seconds(void)
 {
-    struct timespec ts;
-    (void)clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
+    return (double)clock() / (double)CLOCKS_PER_SEC;
 }
 
 static plidar_scene scene(void)

@@ -26,13 +26,20 @@
  * reduces to at fixed amplitudes, then expectation maximisation on the two
  * amplitudes alternating with a golden section search on t0.
  *
- * The coarse scan covers the full period on purpose. Restricting it to a
- * neighbourhood of the matched filter peak would be faster and would hide
- * the behaviour this repository exists to measure: below a certain photon
- * budget the likelihood surface grows a competing maximum on a background
- * fluctuation, the estimator occasionally takes it, and the error jumps from
- * millimetres to metres. An estimator that is not allowed to make that
- * mistake cannot be shown making it.
+ * The coarse scan covers every candidate the template fits behind, rather
+ * than a neighbourhood of the matched filter peak. Restricting it would be
+ * faster and would hide the behaviour this repository exists to measure:
+ * below a certain photon budget the likelihood surface grows a competing
+ * maximum on a background fluctuation, the estimator occasionally takes it,
+ * and the error jumps from millimetres to metres. An estimator that is not
+ * allowed to make that mistake cannot be shown making it.
+ *
+ * "Every candidate the template fits behind" is not quite the whole period.
+ * A return within a template half width of either end has no room for the
+ * window and is out of reach: with the response and bins used in this
+ * repository that is the first and last 1.6 ns, or about half a metre at
+ * each end of a fifteen metre range. It is a property of a finite record
+ * rather than of the search.
  *
  * ## Pile up
  *

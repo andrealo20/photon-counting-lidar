@@ -148,6 +148,11 @@ plidar_status_t plidar_sim_mc(const plidar_scene *sc, const plidar_detector *det
     plidar_rng arrivals;
     plidar_rng afterpulses;
     double times[PLIDAR_MC_MAX_PER_CYCLE];
+    /* Afterpulses whose delay carries them past the end of the cycle that
+     * produced them, held in absolute time until the cycle they land in. A
+     * trapped carrier does not know where the cycle boundary is. */
+    double carried[PLIDAR_MC_MAX_CARRIED];
+    size_t ncarried = 0u;
     double t_ready = -1.0; /* absolute time the detector is armed again */
     uint64_t hits = 0u;
 
@@ -164,7 +169,13 @@ plidar_status_t plidar_sim_mc(const plidar_scene *sc, const plidar_detector *det
     if (!(det->dead_time >= 0.0)) {
         return PLIDAR_ERR_DOMAIN;
     }
-    if (det->afterpulse_prob > 0.0 && !(det->afterpulse_tau > 0.0)) {
+    /* The rate handed to the exponential draw is one over this, so a time
+     * constant small enough to make that infinite would produce afterpulses
+     * at zero delay, each one triggering the next at the same instant. The
+     * cycle buffer would stop it, but reporting a bad parameter is better
+     * than reporting a full buffer. */
+    if (det->afterpulse_prob > 0.0 &&
+        (!(det->afterpulse_tau > 0.0) || !isfinite(1.0 / det->afterpulse_tau))) {
         return PLIDAR_ERR_DOMAIN;
     }
     if (sc->efficiency * sc->signal > PLIDAR_POISSON_MU_MAX ||
@@ -192,7 +203,24 @@ plidar_status_t plidar_sim_mc(const plidar_scene *sc, const plidar_detector *det
         size_t next = 0u;
         uint32_t k = 0u;
         int recorded_here = 0;
-        double pending_ap = -1.0;
+
+        /* Afterpulses left over from earlier cycles that come due in this
+         * one. The rest stay on the list for a later cycle. */
+        {
+            size_t keep = 0u;
+            for (size_t c = 0; c < ncarried; c++) {
+                const double rel = carried[c] - base;
+                if (rel < sc->period) {
+                    if (n >= PLIDAR_MC_MAX_PER_CYCLE) {
+                        return PLIDAR_ERR_DOMAIN;
+                    }
+                    insert_sorted(times, n++, (rel > 0.0) ? rel : 0.0);
+                } else {
+                    carried[keep++] = carried[c];
+                }
+            }
+            ncarried = keep;
+        }
 
         /* Background: a homogeneous process over the cycle. */
         st = plidar_rng_poisson(&arrivals,
@@ -230,19 +258,8 @@ plidar_status_t plidar_sim_mc(const plidar_scene *sc, const plidar_detector *det
             insert_sorted(times, n++, t);
         }
 
-        for (;;) {
-            double event;
-
-            /* Take whichever comes first, the next real photon or an
-             * afterpulse left over from a detection earlier in the cycle. */
-            if (pending_ap >= 0.0 && (next >= n || pending_ap <= times[next])) {
-                event = pending_ap;
-                pending_ap = -1.0;
-            } else if (next < n) {
-                event = times[next++];
-            } else {
-                break;
-            }
+        while (next < n) {
+            const double event = times[next++];
 
             {
                 const double abs_t = base + event;
@@ -275,8 +292,26 @@ plidar_status_t plidar_sim_mc(const plidar_scene *sc, const plidar_detector *det
                 const double delay =
                     plidar_rng_exponential(&afterpulses, 1.0 / det->afterpulse_tau);
                 const double ap = event + delay;
+
+                /* Merged into the arrivals still ahead rather than held in a
+                 * slot of its own. A single slot was the first version and it
+                 * quietly threw an afterpulse away whenever a second
+                 * detection produced one before the first had come due, which
+                 * is common as soon as the detection rate is high enough for
+                 * afterpulsing to matter at all. Queueing them also lets an
+                 * afterpulse trigger one of its own, which is what the
+                 * trapped carriers do. */
                 if (ap < sc->period) {
-                    pending_ap = ap;
+                    if (n >= PLIDAR_MC_MAX_PER_CYCLE) {
+                        return PLIDAR_ERR_DOMAIN;
+                    }
+                    insert_sorted(times + next, n - next, ap);
+                    n++;
+                } else {
+                    if (ncarried >= PLIDAR_MC_MAX_CARRIED) {
+                        return PLIDAR_ERR_DOMAIN;
+                    }
+                    carried[ncarried++] = base + ap;
                 }
             }
         }

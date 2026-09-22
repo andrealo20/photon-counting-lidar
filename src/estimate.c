@@ -13,13 +13,21 @@
 /* Half width of the IRF template in bins. The variance of the EMG already
  * carries the tail, so the same number of standard deviations on each side
  * covers a shape that is not symmetric. */
-static size_t tmpl_half(const plidar_scene *t)
+static size_t tmpl_half(const plidar_scene *t, size_t nbins)
 {
     const double s = sqrt(plidar_irf_variance(&t->irf));
     double h = ceil(PLIDAR_TEMPLATE_SIGMAS * s / t->bin_width);
 
+    /* Clamped before the conversion, not after. A response wide against the
+     * bin, or a bin width close to zero, makes this ratio larger than any
+     * size_t, and converting a double that does not fit is undefined rather
+     * than merely wrong. Callers whose template would not fit are turned
+     * away by the size checks that follow. */
     if (!(h >= 1.0)) {
         h = 1.0;
+    }
+    if (!(h < (double)nbins)) {
+        h = (double)nbins;
     }
     return (size_t)h;
 }
@@ -126,7 +134,18 @@ plidar_status_t plidar_est_centroid(const plidar_scene *tmpl, const double *coun
         }
     }
 
-    hw = (size_t)ceil(half_window / tmpl->bin_width);
+    {
+        /* Same reasoning as in tmpl_half: clamp while it is still a double.
+         * A window wider than the record is simply the whole record. */
+        double w = ceil(half_window / tmpl->bin_width);
+        if (!(w >= 1.0)) {
+            w = 1.0;
+        }
+        if (!(w < (double)nbins)) {
+            w = (double)nbins;
+        }
+        hw = (size_t)w;
+    }
     lo = (peak > hw) ? (peak - hw) : 0u;
     hi = (peak + hw < nbins - 1u) ? (peak + hw) : (nbins - 1u);
     nwin = hi - lo + 1u;
@@ -167,7 +186,7 @@ plidar_status_t plidar_est_matched(const plidar_scene *tmpl, const double *count
     if (tmpl == NULL || counts == NULL || scratch == NULL || out == NULL) {
         return PLIDAR_ERR_ARG;
     }
-    h = tmpl_half(tmpl);
+    h = tmpl_half(tmpl, nbins);
     if (nbins < 2u * h + 3u) {
         return PLIDAR_ERR_ARG;
     }
@@ -277,7 +296,7 @@ plidar_status_t plidar_est_mle(const plidar_scene *tmpl, const double *counts,
     if (!(cycles > 0.0)) {
         return PLIDAR_ERR_DOMAIN;
     }
-    h = tmpl_half(tmpl);
+    h = tmpl_half(tmpl, nbins);
     width = 2u * h + 1u;
     if (nbins < 2u * width) {
         return PLIDAR_ERR_ARG;
