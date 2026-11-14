@@ -50,10 +50,17 @@
  * that is short by a predictable amount, which is itself one of the figures
  * in this repository.
  *
+ * Once most cycles record, that pair still weighs the bins wrongly: the late
+ * bins are seen only by the few cycles still listening, and the Poisson fit
+ * weighs them as if all of them were. plidar_est_mle_first_photon fits the
+ * first photon model to the counts as recorded instead, so it needs no
+ * correction in front and weighs each bin by the cycles that could still
+ * record in it.
+ *
  * ## Memory
  *
  * Nothing is allocated. Every routine that needs working space takes a
- * caller owned buffer of nbins doubles.
+ * caller owned buffer, sized in its own comment.
  */
 #ifndef PLIDAR_ESTIMATE_H
 #define PLIDAR_ESTIMATE_H
@@ -116,6 +123,24 @@ plidar_status_t plidar_est_matched(const plidar_scene *tmpl, const double *count
 plidar_status_t plidar_est_mle(const plidar_scene *tmpl, const double *counts,
                                double cycles, size_t nbins, double *scratch,
                                plidar_estimate *out);
+
+/**
+ * Joint maximum likelihood of the first photon model on the counts as
+ * recorded, with no pile up correction in front.
+ *
+ * loglik is the multinomial log likelihood, its log q terms included. Counts
+ * that are negative or not finite, or that add up to more than cycles, give
+ * PLIDAR_ERR_DOMAIN; counts that add up to zero give PLIDAR_ERR_NO_CONVERGE.
+ *
+ * @param cycles  laser pulses of the whole acquisition, M
+ * @param keep    probability a recorded count was kept, in (0, 1]: 1 for a
+ *                histogram as recorded, 1/K for one of K groups of a
+ *                multinomial split
+ * @param scratch caller owned, 4*nbins doubles
+ */
+plidar_status_t plidar_est_mle_first_photon(const plidar_scene *tmpl, const double *counts,
+                                            double cycles, double keep, size_t nbins,
+                                            double *scratch, plidar_estimate *out);
 
 #ifdef __cplusplus
 }
