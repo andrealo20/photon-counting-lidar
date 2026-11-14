@@ -59,6 +59,17 @@ plidar_status_t plidar_crb(const plidar_scene *sc, double cycles,
                            double *scratch, size_t nbins,
                            plidar_crb_result *out);
 
+/**
+ * Bound of the first photon model, multinomial over the bins plus the
+ * category of cycles with no record, for a histogram thinned with keep q.
+ * @param cycles  laser pulses of the whole acquisition, M
+ * @param keep    probability a recorded count was kept, in (0, 1]
+ * @param scratch caller owned, 2*nbins doubles
+ */
+plidar_status_t plidar_crb_first_photon(const plidar_scene *sc, double cycles, double keep,
+                                        double *scratch, size_t nbins,
+                                        plidar_crb_result *out);
+
 /** Standard deviation in metres from a variance in seconds squared. */
 double plidar_crb_range_sigma(double var_tof);
 
