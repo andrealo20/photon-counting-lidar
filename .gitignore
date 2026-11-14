@@ -16,4 +16,4 @@ PLAN-REVIEW-LOG.md
 .codex/
 
 # Third-party datasets (licence forbids redistribution here)
-data/
+/data/

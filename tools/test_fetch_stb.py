@@ -52,6 +52,40 @@ def test_sample_files():
     assert "README.md" in files
 
 
+def test_fetch_discards_a_corrupt_download():
+    data = b"hello\n"
+    entry = {"path": "README.md", "size": len(data), "oid": "0" * 40}
+    real = (F._tree, F._open, F.sample_files)
+
+    class Reply:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n):
+            chunk, self.left = self.left, b""
+            return chunk
+
+        left = data
+
+    F._tree = lambda folder: {"README.md": entry} if folder == "" else {}
+    F._open = lambda url: Reply()
+    F.sample_files = lambda s: ["README.md"]
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                F.fetch(1, Path(d))
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError("a corrupt download must raise")
+            assert list(Path(d).iterdir()) == []
+    finally:
+        F._tree, F._open, F.sample_files = real
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

@@ -82,13 +82,20 @@ def _tree(folder: str) -> dict[str, dict]:
         return {e["path"]: e for e in json.load(r) if e.get("type") == "file"}
 
 
-def _download(path: str, out: Path) -> None:
+def _download(path: str, entry: dict, out: Path) -> None:
+    """Fetch into <out>.part and rename only once the digest checks out, so a
+    partial or corrupt file never sits under the final name."""
     out.parent.mkdir(parents=True, exist_ok=True)
     part = out.with_name(out.name + ".part")
-    with _open(f"https://huggingface.co/datasets/{REPO}/resolve/main/{path}") as r, \
-            part.open("wb") as f:
-        for block in iter(lambda: r.read(1 << 20), b""):
-            f.write(block)
+    try:
+        with _open(f"https://huggingface.co/datasets/{REPO}/resolve/main/{path}") as r,                 part.open("wb") as f:
+            for block in iter(lambda: r.read(1 << 20), b""):
+                f.write(block)
+        if not verify(part, entry):
+            raise SystemExit(f"{path}: digest mismatch after download, discarded")
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
     part.replace(out)
 
 
@@ -106,10 +113,7 @@ def fetch(sample: int, dest: Path) -> Path:
             print(f"verified    {p}")
             continue
         print(f"downloading {p} ({entries[p]['size']} bytes)")
-        _download(p, out)
-        if not verify(out, entries[p]):
-            out.unlink()
-            raise SystemExit(f"{p}: digest mismatch after download, removed")
+        _download(p, entries[p], out)
         print(f"verified    {p}")
     return dest
 
