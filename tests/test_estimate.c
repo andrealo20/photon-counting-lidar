@@ -258,8 +258,7 @@ static double first_photon_loglik(const plidar_scene *sc, const double *counts,
  * Except for the EMG. Its template stops at ten standard deviations, like the
  * Poisson fit's, and 1.2e-5 of this response lies past that. The fit has only
  * the background to put those counts in, which comes to 150 photons per
- * second, so that case is held to the tolerance of the case with a
- * background instead.
+ * second, so that case is held to twice that.
  *
  * The table's template holds all of its response, so for the table the fit
  * and the simulator describe the same model, and two more things are exact.
@@ -308,7 +307,7 @@ static void test_first_photon_mle_inverts_the_model(void)
                     TEST_ASSERT_DOUBLE_WITHIN(1e-3 * sc.background, sc.background,
                                               est.background);
                 } else if (shape == 1) {
-                    TEST_ASSERT_LESS_THAN_DOUBLE(1e-3 * backgrounds[0], est.background);
+                    TEST_ASSERT_LESS_THAN_DOUBLE(300.0, est.background);
                 } else {
                     TEST_ASSERT_LESS_THAN_DOUBLE(1.0, est.background);
                 }
