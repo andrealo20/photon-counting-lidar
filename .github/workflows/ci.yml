@@ -116,6 +116,11 @@ jobs:
         working-directory: tools
         run: python test_plidar.py
 
+      # Offline only: the downloader itself needs the network and is not run.
+      - name: Test the dataset downloader
+        working-directory: tools
+        run: python test_fetch_stb.py
+
       # A short sweep rather than the published one. It proves the binding and
       # the whole pipeline still work; reproducing the figure takes a couple
       # of minutes and belongs on a workstation.
