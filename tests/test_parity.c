@@ -13,6 +13,11 @@
  * the seeds are fixed, so the test either passes every time or fails every
  * time, and a flaky statistical test in continuous integration is worse than
  * no test.
+ *
+ * For a tabulated response the Monte Carlo samples by rejection against the
+ * interpolated density. That case therefore checks the integration of the
+ * density into bins and the pile up, not an independent generative
+ * construction as the EMG case does.
  */
 #include <math.h>
 
