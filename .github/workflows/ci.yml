@@ -112,6 +112,10 @@ jobs:
         working-directory: tools
         run: python check_bindings.py
 
+      - name: Test the first photon and tabulated response bindings
+        working-directory: tools
+        run: python test_plidar.py
+
       # A short sweep rather than the published one. It proves the binding and
       # the whole pipeline still work; reproducing the figure takes a couple
       # of minutes and belongs on a workstation.
