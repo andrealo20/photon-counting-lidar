@@ -25,6 +25,10 @@ int main(void)
     OFFSET_OF(plidar_irf, kind);
     OFFSET_OF(plidar_irf, sigma);
     OFFSET_OF(plidar_irf, tau);
+    OFFSET_OF(plidar_irf, table);
+    OFFSET_OF(plidar_irf, n);
+    OFFSET_OF(plidar_irf, t_first);
+    OFFSET_OF(plidar_irf, dt);
 
     SIZE_OF(plidar_scene);
     OFFSET_OF(plidar_scene, period);

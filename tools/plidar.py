@@ -24,6 +24,7 @@ C_LIGHT = 299792458.0
 
 IRF_GAUSSIAN = 0
 IRF_EMG = 1
+IRF_TABLE = 2
 
 SIM_IDEAL = 0
 SIM_FIRST_PHOTON = 1
@@ -49,7 +50,9 @@ def _check(code: int, where: str) -> None:
 
 
 class Irf(ctypes.Structure):
-    _fields_ = [("kind", c_int), ("sigma", c_double), ("tau", c_double)]
+    _fields_ = [("kind", c_int), ("sigma", c_double), ("tau", c_double),
+                ("table", POINTER(c_double)), ("n", c_size_t),
+                ("t_first", c_double), ("dt", c_double)]
 
 
 class Scene(ctypes.Structure):

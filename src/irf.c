@@ -69,9 +69,9 @@ plidar_status_t plidar_irf_init_gaussian(plidar_irf *irf, double sigma)
     if (!(sigma > 0.0)) {
         return PLIDAR_ERR_DOMAIN;
     }
-    irf->kind  = PLIDAR_IRF_GAUSSIAN;
-    irf->sigma = sigma;
-    irf->tau   = 0.0;
+    /* Assigned whole, so the fields of the other kinds come out zero and a
+     * table pointer left over from an earlier use cannot survive. */
+    *irf = (plidar_irf){.kind = PLIDAR_IRF_GAUSSIAN, .sigma = sigma};
     return PLIDAR_OK;
 }
 
@@ -83,9 +83,61 @@ plidar_status_t plidar_irf_init_emg(plidar_irf *irf, double sigma, double tau)
     if (!(sigma > 0.0) || !(tau > 0.0)) {
         return PLIDAR_ERR_DOMAIN;
     }
-    irf->kind  = PLIDAR_IRF_EMG;
-    irf->sigma = sigma;
-    irf->tau   = tau;
+    *irf = (plidar_irf){.kind = PLIDAR_IRF_EMG, .sigma = sigma, .tau = tau};
+    return PLIDAR_OK;
+}
+
+plidar_status_t plidar_irf_init_table(plidar_irf *irf, const double *samples,
+                                      size_t n, double t_first, double dt,
+                                      double *work)
+{
+    double area = 0.0;
+
+    if (irf == NULL || samples == NULL || work == NULL || n < 2u) {
+        return PLIDAR_ERR_ARG;
+    }
+    if (!(dt > 0.0) || !isfinite(dt) || !isfinite(t_first)) {
+        return PLIDAR_ERR_DOMAIN;
+    }
+    if (samples[0] > 0.0 || samples[n - 1u] > 0.0) {
+        return PLIDAR_ERR_DOMAIN;
+    }
+    for (size_t k = 0; k < n; k++) {
+        if (!(samples[k] >= 0.0) || !isfinite(samples[k])) {
+            return PLIDAR_ERR_DOMAIN;
+        }
+        area += samples[k];
+    }
+    /* With both ends at zero the trapezoidal rule is dt times the plain sum.
+     * An area that overflowed would normalise every sample to zero. */
+    area *= dt;
+    if (!(area > 0.0) || !isfinite(area)) {
+        return PLIDAR_ERR_DOMAIN;
+    }
+
+    {
+        double *f = work;
+        double *left = work + n;
+        double *right = work + 2u * n;
+
+        for (size_t k = 0; k < n; k++) {
+            f[k] = samples[k] / area;
+        }
+        left[0] = 0.0;
+        for (size_t k = 1; k < n; k++) {
+            left[k] = left[k - 1u] + 0.5 * dt * (f[k - 1u] + f[k]);
+        }
+        /* Summed from the right end, so that the mass beyond a node in the
+         * far tail is made of tail terms only, rather than one minus a
+         * number within rounding of one. */
+        right[n - 1u] = 0.0;
+        for (size_t k = n - 1u; k > 0u; k--) {
+            right[k - 1u] = right[k] + 0.5 * dt * (f[k - 1u] + f[k]);
+        }
+    }
+
+    *irf = (plidar_irf){.kind = PLIDAR_IRF_TABLE, .table = work, .n = n,
+                        .t_first = t_first, .dt = dt};
     return PLIDAR_OK;
 }
 
@@ -134,10 +186,109 @@ static double emg_tail_term(const plidar_irf *irf, double t)
                log_mills_series(x));
 }
 
+/* Time of the last node of a table. */
+static double table_end(const plidar_irf *irf)
+{
+    return irf->t_first + (double)(irf->n - 1u) * irf->dt;
+}
+
+/*
+ * The cell of a table that holds t, and the fraction u of the way across it,
+ * for t strictly inside the support. The index is clamped in floating point,
+ * before the conversion, because a t just short of the last node can round
+ * onto it and because converting a double past the range of size_t is
+ * undefined.
+ */
+static size_t table_cell(const plidar_irf *irf, double t, double *u)
+{
+    const double x = (t - irf->t_first) / irf->dt;
+    const size_t last = irf->n - 2u;
+    const size_t k = (x < (double)last) ? (size_t)x : last;
+    const double frac = x - (double)k;
+
+    *u = (frac < 1.0) ? frac : 1.0;
+    return k;
+}
+
+static double table_pdf(const plidar_irf *irf, double t)
+{
+    const double *f = irf->table;
+    size_t k;
+    double u;
+
+    if (!(t > irf->t_first) || !(t < table_end(irf))) {
+        return 0.0;
+    }
+    k = table_cell(irf, t, &u);
+    return (1.0 - u) * f[k] + u * f[k + 1u];
+}
+
+/*
+ * Mass of a table on one side of t: to the left for the distribution
+ * function, to the right for the survival function. In cell k, with f(t)
+ * the interpolated density, the left mass is the mass left of node k plus
+ * the trapezoid from node k to t, and the right mass is the mass right of
+ * node k + 1 plus the trapezoid from t to node k + 1. Each is built only
+ * from terms on its own side, which is what lets the right one keep its
+ * relative precision in the far tail.
+ */
+static double table_mass(const plidar_irf *irf, double t, int right)
+{
+    const double *f = irf->table;
+    const double *left_of = f + irf->n;
+    const double *right_of = f + 2u * irf->n;
+    size_t k;
+    double u, ft;
+
+    if (!(t > irf->t_first)) {
+        return right ? 1.0 : 0.0;
+    }
+    if (!(t < table_end(irf))) {
+        return right ? 0.0 : 1.0;
+    }
+    k = table_cell(irf, t, &u);
+    ft = (1.0 - u) * f[k] + u * f[k + 1u];
+    if (right) {
+        return right_of[k + 1u] + 0.5 * irf->dt * (1.0 - u) * (ft + f[k + 1u]);
+    }
+    return left_of[k] + 0.5 * irf->dt * u * (f[k] + ft);
+}
+
+/*
+ * First and second moments of a table about the point c, integrated cell by
+ * cell in closed form. On a cell whose midpoint lies m from c, the density
+ * is fm + df*w/dt, with fm and df the mean and the difference (right minus
+ * left) of its two node values and w the offset from the midpoint, so
+ *
+ *     integral of (t - c)   f = dt * (m*fm + dt*df/12)
+ *     integral of (t - c)^2 f = dt * (m^2*fm + m*dt*df/6 + dt^2*fm/12)
+ */
+static void table_moments(const plidar_irf *irf, double c, double *m1,
+                          double *m2)
+{
+    const double *f = irf->table;
+    const double dt = irf->dt;
+    double s1 = 0.0, s2 = 0.0;
+
+    for (size_t k = 0; k + 1u < irf->n; k++) {
+        const double m = irf->t_first + ((double)k + 0.5) * dt - c;
+        const double fm = 0.5 * (f[k] + f[k + 1u]);
+        const double df = f[k + 1u] - f[k];
+
+        s1 += m * fm + dt * df / 12.0;
+        s2 += m * m * fm + m * dt * df / 6.0 + dt * dt * fm / 12.0;
+    }
+    *m1 = dt * s1;
+    *m2 = dt * s2;
+}
+
 double plidar_irf_pdf(const plidar_irf *irf, double t)
 {
     if (irf == NULL) {
         return 0.0;
+    }
+    if (irf->kind == PLIDAR_IRF_TABLE) {
+        return table_pdf(irf, t);
     }
     if (irf->kind == PLIDAR_IRF_GAUSSIAN) {
         const double a = t / irf->sigma;
@@ -155,6 +306,8 @@ double plidar_irf_cdf(const plidar_irf *irf, double t)
     }
     if (irf->kind == PLIDAR_IRF_GAUSSIAN) {
         c = phi_cdf(t / irf->sigma);
+    } else if (irf->kind == PLIDAR_IRF_TABLE) {
+        c = table_mass(irf, t, 0);
     } else {
         /* cdf(t) = Phi(t/sigma) - tau*pdf(t). The two terms are close when t
          * is far to the left, where both are negligible anyway, so the loss
@@ -193,6 +346,8 @@ static double irf_sf(const plidar_irf *irf, double t)
 
     if (irf->kind == PLIDAR_IRF_GAUSSIAN) {
         s = phi_cdf(-t / irf->sigma);
+    } else if (irf->kind == PLIDAR_IRF_TABLE) {
+        s = table_mass(irf, t, 1);
     } else {
         s = phi_cdf(-t / irf->sigma) + emg_tail_term(irf, t);
     }
@@ -210,6 +365,11 @@ double plidar_irf_mean(const plidar_irf *irf)
     if (irf == NULL) {
         return 0.0;
     }
+    if (irf->kind == PLIDAR_IRF_TABLE) {
+        double m1, m2;
+        table_moments(irf, 0.0, &m1, &m2);
+        return m1;
+    }
     return (irf->kind == PLIDAR_IRF_GAUSSIAN) ? 0.0 : irf->tau;
 }
 
@@ -217,6 +377,14 @@ double plidar_irf_variance(const plidar_irf *irf)
 {
     if (irf == NULL) {
         return 0.0;
+    }
+    if (irf->kind == PLIDAR_IRF_TABLE) {
+        /* About the mean rather than the origin, so that a response far
+         * from t = 0 does not lose its width to the difference of two large
+         * second moments. */
+        double m1, m2;
+        table_moments(irf, plidar_irf_mean(irf), &m1, &m2);
+        return m2 - m1 * m1;
     }
     if (irf->kind == PLIDAR_IRF_GAUSSIAN) {
         return irf->sigma * irf->sigma;
@@ -230,6 +398,15 @@ double plidar_irf_peak_bound(const plidar_irf *irf)
 
     if (irf == NULL) {
         return 0.0;
+    }
+    if (irf->kind == PLIDAR_IRF_TABLE) {
+        double peak = 0.0;
+        for (size_t k = 0; k < irf->n; k++) {
+            if (irf->table[k] > peak) {
+                peak = irf->table[k];
+            }
+        }
+        return peak;
     }
     gauss_peak = PLIDAR_INV_SQRT_2PI / irf->sigma;
     if (irf->kind == PLIDAR_IRF_GAUSSIAN) {
