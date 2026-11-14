@@ -84,8 +84,9 @@ plidar_status_t plidar_irf_init_emg(plidar_irf *irf, double sigma, double tau);
  * the origin of the table belongs inside the bulk of the response, for
  * instance at the half height point of the rising edge.
  *
- * The table belongs to the caller and must outlive every copy of the struct:
- * a scene passed by value copies the pointer, not the samples.
+ * work becomes irf->table and must outlive irf and every copy of it: a scene
+ * passed by value shares the table rather than duplicating it. samples is not
+ * referenced after the call.
  *
  * irf is written only on success, and work only once every check has passed.
  * Null pointers and n < 2 give PLIDAR_ERR_ARG. A dt that is not positive and

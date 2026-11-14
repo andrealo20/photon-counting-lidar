@@ -16,6 +16,7 @@
  */
 #include <math.h>
 
+#include "fixture_table.h"
 #include "plidar/sim.h"
 #include "unity.h"
 
@@ -26,8 +27,10 @@ enum { NB = 1000 };
 
 static double expected[NB];
 static uint64_t observed[NB];
+/* The table is owned by the test: the scene only points at it. */
+static double table_work[3 * FIXTURE_NODES];
 
-static plidar_scene make_scene(int emg)
+static plidar_scene make_scene(plidar_irf_kind kind)
 {
     plidar_scene sc;
 
@@ -38,7 +41,10 @@ static plidar_scene make_scene(int emg)
     sc.signal = 0.02;
     sc.background = 2e6;
     sc.efficiency = 0.3;
-    if (emg) {
+    if (kind == PLIDAR_IRF_TABLE) {
+        /* Support 4.6 ns around t0, well inside the period. */
+        (void)fixture_flat_top(&sc.irf, 100e-12, table_work);
+    } else if (kind == PLIDAR_IRF_EMG) {
         (void)plidar_irf_init_emg(&sc.irf, 200e-12, 350e-12);
     } else {
         (void)plidar_irf_init_gaussian(&sc.irf, 200e-12);
@@ -90,9 +96,9 @@ static double sigmas_off(double chi2, size_t dof)
     return (chi2 - (double)dof) / sqrt(2.0 * (double)dof);
 }
 
-static void run_parity(int emg, int first_photon, uint64_t cycles, uint64_t seed)
+static void run_parity(plidar_irf_kind kind, int first_photon, uint64_t cycles, uint64_t seed)
 {
-    plidar_scene sc = make_scene(emg);
+    plidar_scene sc = make_scene(kind);
     plidar_detector det = ideal_detector(first_photon);
     plidar_rng rng;
     size_t dof = 0u;
@@ -116,22 +122,22 @@ static void run_parity(int emg, int first_photon, uint64_t cycles, uint64_t seed
 
 static void test_gaussian_ideal(void)
 {
-    run_parity(0, 0, 2000000u, 1u);
+    run_parity(PLIDAR_IRF_GAUSSIAN, 0, 2000000u, 1u);
 }
 
 static void test_gaussian_first_photon(void)
 {
-    run_parity(0, 1, 2000000u, 2u);
+    run_parity(PLIDAR_IRF_GAUSSIAN, 1, 2000000u, 2u);
 }
 
 static void test_emg_ideal(void)
 {
-    run_parity(1, 0, 2000000u, 3u);
+    run_parity(PLIDAR_IRF_EMG, 0, 2000000u, 3u);
 }
 
 static void test_emg_first_photon(void)
 {
-    run_parity(1, 1, 2000000u, 4u);
+    run_parity(PLIDAR_IRF_EMG, 1, 2000000u, 4u);
 }
 
 /*
@@ -150,9 +156,19 @@ static void test_emg_first_photon(void)
  * parity check, which has to agree, and once against the model with pile up
  * removed, which has to disagree by a margin that leaves no room for doubt.
  */
+static void test_table_ideal(void)
+{
+    run_parity(PLIDAR_IRF_TABLE, 0, 2000000u, 11u);
+}
+
+static void test_table_first_photon(void)
+{
+    run_parity(PLIDAR_IRF_TABLE, 1, 2000000u, 12u);
+}
+
 static void test_parity_can_tell_pile_up_apart(void)
 {
-    plidar_scene sc = make_scene(1);
+    plidar_scene sc = make_scene(PLIDAR_IRF_EMG);
     plidar_detector det = ideal_detector(1);
     plidar_rng rng;
     const uint64_t cycles = 2000000u;
@@ -187,7 +203,7 @@ static void test_parity_can_tell_pile_up_apart(void)
 
 static void test_detection_probability_matches_the_closed_form(void)
 {
-    plidar_scene sc = make_scene(1);
+    plidar_scene sc = make_scene(PLIDAR_IRF_EMG);
     plidar_detector det = ideal_detector(1);
     plidar_rng rng;
     const uint64_t cycles = 2000000u;
@@ -212,7 +228,7 @@ static void test_detection_probability_matches_the_closed_form(void)
 
 static void test_dead_time_only_removes_counts(void)
 {
-    plidar_scene sc = make_scene(1);
+    plidar_scene sc = make_scene(PLIDAR_IRF_EMG);
     plidar_detector open_det = ideal_detector(0);
     plidar_detector dead_det = ideal_detector(0);
     plidar_rng rng;
@@ -245,7 +261,7 @@ static void test_dead_time_only_removes_counts(void)
 
 static void test_afterpulsing_only_adds_counts(void)
 {
-    plidar_scene sc = make_scene(1);
+    plidar_scene sc = make_scene(PLIDAR_IRF_EMG);
     plidar_detector plain = ideal_detector(0);
     plidar_detector noisy = ideal_detector(0);
     plidar_rng rng;
@@ -291,7 +307,7 @@ static void test_afterpulsing_only_adds_counts(void)
 
 static void test_scene_validation(void)
 {
-    plidar_scene sc = make_scene(0);
+    plidar_scene sc = make_scene(PLIDAR_IRF_GAUSSIAN);
     plidar_detector det = ideal_detector(0);
     plidar_rng rng;
 
@@ -300,20 +316,33 @@ static void test_scene_validation(void)
 
     sc.t0 = sc.period;
     TEST_ASSERT_EQUAL_INT(PLIDAR_ERR_DOMAIN, plidar_scene_check(&sc));
-    sc = make_scene(0);
+    sc = make_scene(PLIDAR_IRF_GAUSSIAN);
 
     sc.bin_width *= 2.0; /* grid no longer tiles the period */
     TEST_ASSERT_EQUAL_INT(PLIDAR_ERR_DOMAIN, plidar_scene_check(&sc));
-    sc = make_scene(0);
+    sc = make_scene(PLIDAR_IRF_GAUSSIAN);
 
     sc.efficiency = 1.5;
     TEST_ASSERT_EQUAL_INT(PLIDAR_ERR_DOMAIN,
                           plidar_sim_mc(&sc, &det, 10u, &rng, observed, NB, NULL));
+    sc = make_scene(PLIDAR_IRF_GAUSSIAN);
+
+    /* A table has no sigma to check, but it does need its nodes. */
+    sc = make_scene(PLIDAR_IRF_TABLE);
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK, plidar_scene_check(&sc));
+    sc.irf.sigma = 0.0;
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK, plidar_scene_check(&sc));
+    sc.irf.table = NULL;
+    TEST_ASSERT_EQUAL_INT(PLIDAR_ERR_DOMAIN, plidar_scene_check(&sc));
+    sc = make_scene(PLIDAR_IRF_GAUSSIAN);
+
+    sc.irf.kind = (plidar_irf_kind)7;
+    TEST_ASSERT_EQUAL_INT(PLIDAR_ERR_DOMAIN, plidar_scene_check(&sc));
 }
 
 static void test_range_and_time_of_flight_are_inverses(void)
 {
-    plidar_scene sc = make_scene(0);
+    plidar_scene sc = make_scene(PLIDAR_IRF_GAUSSIAN);
 
     TEST_ASSERT_DOUBLE_WITHIN(1e-12, 5.0,
                               plidar_tof_to_range(plidar_range_to_tof(5.0)));
@@ -328,6 +357,8 @@ int main(void)
     RUN_TEST(test_gaussian_first_photon);
     RUN_TEST(test_emg_ideal);
     RUN_TEST(test_emg_first_photon);
+    RUN_TEST(test_table_ideal);
+    RUN_TEST(test_table_first_photon);
     RUN_TEST(test_parity_can_tell_pile_up_apart);
     RUN_TEST(test_detection_probability_matches_the_closed_form);
     RUN_TEST(test_dead_time_only_removes_counts);

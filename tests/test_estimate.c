@@ -1,5 +1,6 @@
 #include <math.h>
 
+#include "fixture_table.h"
 #include "plidar/coates.h"
 #include "plidar/estimate.h"
 #include "unity.h"
@@ -12,6 +13,7 @@ enum { NB = 2000 };
 static double noiseless[NB];
 static double corrected[NB];
 static double scratch[NB];
+static double table_work[3 * FIXTURE_NODES];
 
 #define CYCLES 1.0e6
 #define T0     37.3e-9
@@ -52,6 +54,32 @@ static void test_maximum_likelihood_inverts_the_model(void)
     TEST_ASSERT_DOUBLE_WITHIN(0.01 * sc.signal, sc.signal, est.signal);
     TEST_ASSERT_DOUBLE_WITHIN(0.01 * sc.background, sc.background, est.background);
     TEST_ASSERT_DOUBLE_WITHIN(1e-9, plidar_tof_to_range(est.t0), est.range);
+}
+
+/*
+ * The fixture is not a Gaussian and not an EMG, so the template, the search
+ * and the closed form fit all have to follow the table. With a 100 ps unit
+ * and 50 ps bins the template half width is 80 bins, from the 40 unit end of
+ * the support.
+ */
+static void test_maximum_likelihood_inverts_a_tabulated_model(void)
+{
+    plidar_scene sc = base_scene();
+    plidar_estimate est;
+
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK, fixture_flat_top(&sc.irf, 100e-12, table_work));
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                          plidar_sim_analytic(&sc, PLIDAR_SIM_IDEAL, CYCLES,
+                                              noiseless, NB));
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                          plidar_est_mle(&sc, noiseless, CYCLES, NB, scratch, &est));
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3 * sc.bin_width, sc.t0, est.t0);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3 * sc.signal, sc.signal, est.signal);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3 * sc.background, sc.background, est.background);
+
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                          plidar_est_matched(&sc, noiseless, NB, scratch, &est));
+    TEST_ASSERT_DOUBLE_WITHIN(0.25 * sc.bin_width, sc.t0, est.t0);
 }
 
 static void test_matched_filter_finds_the_peak(void)
@@ -198,6 +226,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_maximum_likelihood_inverts_the_model);
+    RUN_TEST(test_maximum_likelihood_inverts_a_tabulated_model);
     RUN_TEST(test_matched_filter_finds_the_peak);
     RUN_TEST(test_centroid_is_unbiased_on_a_symmetric_response);
     RUN_TEST(test_the_tail_biases_the_centroid_and_not_the_matched_filter);

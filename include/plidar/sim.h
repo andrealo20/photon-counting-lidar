@@ -130,7 +130,13 @@ double plidar_tof_to_range(double tof_s);
 /** Largest distance that does not fold back into the histogram. */
 double plidar_unambiguous_range(const plidar_scene *sc);
 
-/** A scene is usable if every field is in range and the grid covers the period. */
+/**
+ * A scene is usable if every field is in range and the grid covers the period.
+ * The response is checked on the fields its kind uses: sigma for a Gaussian,
+ * sigma and tau for an EMG, the table pointer, node count, spacing and first
+ * node time for a table (sigma and tau are not read). An unknown kind is
+ * refused.
+ */
 plidar_status_t plidar_scene_check(const plidar_scene *sc);
 
 /**

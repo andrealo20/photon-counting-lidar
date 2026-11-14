@@ -50,13 +50,25 @@ plidar_status_t plidar_scene_check(const plidar_scene *sc)
     if (!(sc->efficiency > 0.0) || !(sc->efficiency <= 1.0)) {
         return PLIDAR_ERR_DOMAIN;
     }
-    if (!(sc->irf.sigma > 0.0)) {
+    /* Each kind is checked on the fields it uses. A table has no sigma or
+     * tau, and the sampler reads the nodes, so those are what must be sound.
+     * n >= 2 is enough for memory safety: the evaluators clamp the cell
+     * index to n - 2. */
+    switch (sc->irf.kind) {
+    case PLIDAR_IRF_GAUSSIAN:
+        return (sc->irf.sigma > 0.0) ? PLIDAR_OK : PLIDAR_ERR_DOMAIN;
+    case PLIDAR_IRF_EMG:
+        return (sc->irf.sigma > 0.0 && sc->irf.tau > 0.0) ? PLIDAR_OK
+                                                           : PLIDAR_ERR_DOMAIN;
+    case PLIDAR_IRF_TABLE:
+        if (sc->irf.table == NULL || sc->irf.n < 2u || !(sc->irf.dt > 0.0) ||
+            !isfinite(sc->irf.dt) || !isfinite(sc->irf.t_first)) {
+            return PLIDAR_ERR_DOMAIN;
+        }
+        return PLIDAR_OK;
+    default:
         return PLIDAR_ERR_DOMAIN;
     }
-    if (sc->irf.kind == PLIDAR_IRF_EMG && !(sc->irf.tau > 0.0)) {
-        return PLIDAR_ERR_DOMAIN;
-    }
-    return PLIDAR_OK;
 }
 
 plidar_status_t plidar_scene_rate(const plidar_scene *sc, double t0,
@@ -155,6 +167,9 @@ plidar_status_t plidar_sim_mc(const plidar_scene *sc, const plidar_detector *det
     size_t ncarried = 0u;
     double t_ready = -1.0; /* absolute time the detector is armed again */
     uint64_t hits = 0u;
+    /* Rejection sampling for a table: the envelope, the support, and the
+     * bound on the density, all fixed for the call. */
+    double peak = 0.0, t_lo = 0.0, t_span = 0.0;
 
     if (det == NULL || hist == NULL || rng == NULL) {
         return PLIDAR_ERR_ARG;
@@ -193,6 +208,12 @@ plidar_status_t plidar_sim_mc(const plidar_scene *sc, const plidar_detector *det
         seed = (seed << 32) | (uint64_t)plidar_rng_u32(rng);
         plidar_rng_seed(&arrivals, seed, 1u);
         plidar_rng_seed(&afterpulses, seed, 2u);
+    }
+
+    if (sc->irf.kind == PLIDAR_IRF_TABLE) {
+        peak = plidar_irf_peak_bound(&sc->irf);
+        t_lo = sc->irf.t_first;
+        t_span = (double)(sc->irf.n - 1u) * sc->irf.dt;
     }
 
     memset(hist, 0, nbins * sizeof(hist[0]));
@@ -237,7 +258,7 @@ plidar_status_t plidar_sim_mc(const plidar_scene *sc, const plidar_detector *det
 
         /* Signal: the photon count is Poisson in the mean the return
          * carries, and each time is drawn from the construction of the IRF
-         * itself, a normal jitter plus a diffusion delay. Photons falling
+         * itself, a normal jitter plus a diffusion delay, or by rejection for a table. Photons falling
          * outside the cycle are dropped, which is the marking property of a
          * Poisson process and needs no correction. */
         st = plidar_rng_poisson(&arrivals, sc->efficiency * sc->signal, &k);
@@ -245,9 +266,22 @@ plidar_status_t plidar_sim_mc(const plidar_scene *sc, const plidar_detector *det
             return st;
         }
         for (uint32_t j = 0u; j < k; j++) {
-            double t = sc->t0 + sc->irf.sigma * plidar_rng_normal(&arrivals);
-            if (sc->irf.kind == PLIDAR_IRF_EMG) {
-                t += plidar_rng_exponential(&arrivals, 1.0 / sc->irf.tau);
+            double t;
+            if (sc->irf.kind == PLIDAR_IRF_TABLE) {
+                /* Uniform over the support, kept with probability density
+                 * over peak. The two draws come from the same stream, so a
+                 * table does not disturb the other kinds' sequences. */
+                double x, u;
+                do {
+                    x = t_lo + t_span * plidar_rng_uniform(&arrivals);
+                    u = plidar_rng_uniform(&arrivals);
+                } while (!(u * peak < plidar_irf_pdf(&sc->irf, x)));
+                t = sc->t0 + x;
+            } else {
+                t = sc->t0 + sc->irf.sigma * plidar_rng_normal(&arrivals);
+                if (sc->irf.kind == PLIDAR_IRF_EMG) {
+                    t += plidar_rng_exponential(&arrivals, 1.0 / sc->irf.tau);
+                }
             }
             if (t < 0.0 || t >= sc->period) {
                 continue;

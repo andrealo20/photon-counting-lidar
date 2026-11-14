@@ -225,6 +225,42 @@ static void test_bin_derivative_matches_a_finite_difference(void)
     }
 }
 
+/*
+ * The same comparison for a table. The Fisher information in the bound is
+ * built from plidar_irf_bin_dt0, so it has to be the derivative of the masses
+ * plidar_irf_bin gives, on both sides of t0 and across the kinks.
+ */
+static void test_table_bin_derivative_matches_a_finite_difference(void)
+{
+    plidar_irf irf;
+    enum { NB = 64 };
+    static double work[3 * FIXTURE_NODES];
+    static double up[NB], down[NB], deriv[NB];
+    const double width = 25e-12;
+    const double start = 0.0;
+    const double t0 = 32.0 * width;
+    const double step = width / 100.0;
+
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK, fixture_flat_top(&irf, 100e-12, work));
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                          plidar_irf_bin(&irf, t0 + step, start, width, NB, up));
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                          plidar_irf_bin(&irf, t0 - step, start, width, NB, down));
+    TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                          plidar_irf_bin_dt0(&irf, t0, start, width, NB, deriv));
+
+    /* Where a bin edge sits on a kink the mass is quadratic on one side and
+     * flat on the other, so the central difference is off by about step times
+     * the jump in slope. The slack is a ten thousandth of the peak density,
+     * which that error stays under; the relative term covers the rest. */
+    const double slack = 1e-4 * plidar_irf_peak_bound(&irf);
+
+    for (size_t i = 0; i < NB; i++) {
+        const double numeric = (up[i] - down[i]) / (2.0 * step);
+        TEST_ASSERT_DOUBLE_WITHIN(1e-3 * fabs(deriv[i]) + slack, deriv[i], numeric);
+    }
+}
+
 static void test_rejects_bad_parameters(void)
 {
     plidar_irf x;
@@ -406,12 +442,13 @@ static void test_table_rejects_bad_input(void)
     /* One defect each. HUGE_VAL and nan() rather than INFINITY and NAN,
      * which are floats in C99. */
     const double nan_value = nan("");
-    const double bad[5][4] = {
+    const double bad[6][4] = {
         {0.0, -1.0, 2.0, 0.0},       /* negative */
         {0.0, nan_value, 2.0, 0.0},  /* not a number */
         {1.0, 1.0, 2.0, 0.0},        /* first sample not zero */
         {0.0, 1.0, 2.0, 1.0},        /* last sample not zero */
         {0.0, 0.0, 0.0, 0.0},        /* no area */
+        {0.0, 1e308, 1e308, 0.0},    /* area overflows */
     };
     plidar_irf irf;
 
@@ -450,6 +487,7 @@ int main(void)
     RUN_TEST(test_far_tails_stay_finite);
     RUN_TEST(test_peak_bound_is_a_bound);
     RUN_TEST(test_bin_derivative_matches_a_finite_difference);
+    RUN_TEST(test_table_bin_derivative_matches_a_finite_difference);
     RUN_TEST(test_rejects_bad_parameters);
     RUN_TEST(test_table_triangle_closed_forms);
     RUN_TEST(test_table_density_is_the_derivative_of_its_distribution);

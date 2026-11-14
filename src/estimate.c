@@ -15,8 +15,16 @@
  * covers a shape that is not symmetric. */
 static size_t tmpl_half(const plidar_scene *t, size_t nbins)
 {
-    const double s = sqrt(plidar_irf_variance(&t->irf));
-    double h = ceil(PLIDAR_TEMPLATE_SIGMAS * s / t->bin_width);
+    double h;
+
+    if (t->irf.kind == PLIDAR_IRF_TABLE) {
+        /* The support is finite and known, so cover all of it. */
+        const double last = t->irf.t_first + (double)(t->irf.n - 1u) * t->irf.dt;
+        h = ceil(fmax(fabs(t->irf.t_first), fabs(last)) / t->bin_width);
+    } else {
+        h = ceil(PLIDAR_TEMPLATE_SIGMAS * sqrt(plidar_irf_variance(&t->irf)) /
+                 t->bin_width);
+    }
 
     /* Clamped before the conversion, not after. A response wide against the
      * bin, or a bin width close to zero, makes this ratio larger than any
