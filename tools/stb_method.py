@@ -29,9 +29,10 @@ SEARCH_CLASSES = [(1500, 3000), (3000, 4500), (4500, 6000), (6000, 6400)]
 M_GRID = np.arange(6500, 9001, 100)
 
 # Weight of the second difference penalty in fit_response, to be fixed on the
-# synthetic data before the method sees the real data. The data term counts
-# pixels, so one value smooths less as the number of pixels grows.
-SMOOTH = 10.0
+# synthetic data before the method sees the real data. Each phase is weighted
+# by its share of the pixels, so the penalty acts the same however many
+# pixels enter the fit.
+SMOOTH = 10.0 / 1500
 
 
 def flat_top(unit: float, oversample: int = 8,
@@ -190,10 +191,11 @@ def fit_response(mu: np.ndarray, edges: np.ndarray, bin_width: float,
 
         y_phi[i] = sum_k f_k * (integral of hat_k over bin i shifted by phi)
 
-    solved by least squares weighted by the number of pixels in each phase,
-    plus smooth times the squared norm of the second differences of f. The
-    penalty is what holds down the oscillations one bin of integration
-    cannot see.
+    solved by least squares with each phase weighted by its share of the
+    pixels, plus smooth times the squared norm of the second differences of
+    f. The penalty is what holds down the oscillations one bin of integration
+    cannot see. Weighting by shares rather than counts keeps its strength the
+    same however many pixels enter the fit.
 
     Negative values are then set to zero, and the area that removes is
     printed. t_first puts the half height point of the rising edge of the
@@ -219,7 +221,7 @@ def fit_response(mu: np.ndarray, edges: np.ndarray, bin_width: float,
             # Bin i of the window spans [i - phi, i + 1 - phi) from the edge.
             left = (offsets - m * h)[:, None] - tau
             a = _hat_primitive(left + 1.0, h) - _hat_primitive(left, h)
-            w = np.sqrt(sel.sum())
+            w = np.sqrt(sel.mean())
             blocks.append(w * a)
             rhs.append(w * win[sel].mean(axis=0))
     k = tau.size

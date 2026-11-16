@@ -106,16 +106,33 @@ def test_fit_response_is_exact_on_grid_phases():
     assert _l1(got, true) < 1e-4, _l1(got, true)
 
 
+def test_fit_response_does_not_depend_on_the_pixel_count():
+    # Ten copies of the same pixels carry the same shape, so the fit must not
+    # move. Weights that counted pixels would weaken the penalty tenfold.
+    lib = Plidar()
+    sc = _scene(lib.table(*S.flat_top(BIN)), 1.0)
+    rng = np.random.default_rng(5)
+    mu = np.array([lib.rate(sc, t0) for t0 in rng.uniform(60, 560, 100) * BIN])
+    edges = np.array([S.rising_edge(r) for r in mu])
+    once = S.fit_response(mu, edges, BIN)[0]
+    tiled = S.fit_response(np.tile(mu, (10, 1)), np.tile(edges, 10), BIN)[0]
+    assert np.allclose(once, tiled, rtol=1e-9, atol=1e-12), np.abs(once - tiled).max()
+
+
 def test_is_single_return_tells_one_return_from_two():
     lib = Plidar()
     clean = _scene(lib.table(*S.flat_top(BIN, tail=0.0)), 1.0)
     tailed = _scene(lib.table(*S.flat_top(BIN)), 1.0)
     t0 = 200.3 * BIN
     # Both pulses of the pair carry the tail. The second sits on the tail of
-    # the first, so it holds the highest bin and the edge lands on it.
+    # the first, so it holds the highest bin and the edge lands on it. A
+    # weaker second return leaves the edge on the first, so it has to be
+    # caught after the edge.
     pair = lib.rate(tailed, t0) + lib.rate(tailed, t0 + 30 * BIN)
+    weaker = lib.rate(tailed, t0) + 0.5 * lib.rate(tailed, t0 + 30 * BIN)
     cases = {"clean single pulse": (lib.rate(clean, t0), True),
              "two equal pulses 30 bins apart": (pair, False),
+             "a second return at half height 30 bins later": (weaker, False),
              "single pulse with the 4 percent tail": (lib.rate(tailed, t0), True)}
     for name, (mu, single) in cases.items():
         assert S.is_single_return(mu, S.rising_edge(mu)) == single, name
