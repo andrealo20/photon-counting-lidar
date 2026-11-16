@@ -47,8 +47,9 @@ SMOOTH = 10.0 ** -2.25
 
 ESTIMATORS = ("argmax", "centroid", "matched_coates", "coates_poisson", "first_photon")
 K_GROUPS = 4
-# A group estimate further than this from the t0 of the whole histogram is
-# not a noisy version of it but a different answer, so it counts as a failure.
+# A group estimate further than this from the same estimator's estimate on
+# the whole histogram is not a noisy version of it but a different answer, so
+# it counts as a failure.
 FAIL_BINS = 5.0
 
 
@@ -290,16 +291,6 @@ def template_scene(irf: Irf, nbins: int, bin_width: float) -> Scene:
                         signal=1.0, background=0.0, efficiency=1.0, irf=irf)
 
 
-def _table_sd(irf: Irf) -> float:
-    """Standard deviation of a tabulated response, in seconds."""
-    f = np.ctypeslib.as_array(irf.table, shape=(irf.n,))  # the normalised density
-    k = np.arange(irf.n)
-    mean = np.average(k, weights=f)
-    # A linear interpolant with zero ends is a sum of hats of half width one
-    # node, each with mass f_k, mean k and variance 1/6 in node units.
-    return float(np.sqrt(np.average((k - mean) ** 2, weights=f) + 1.0 / 6.0)) * irf.dt
-
-
 def _t0(fit) -> float:
     try:
         return fit().t0
@@ -325,7 +316,8 @@ def estimate_all(lib: Plidar, tmpl: Scene, hist: np.ndarray, cycles: float,
     takes the counts as they are, with M and keep.
     """
     out = {"argmax": float((np.argmax(hist) + 0.5) * tmpl.bin_width),
-           "centroid": _t0(lambda: lib.centroid(tmpl, hist, 3.0 * _table_sd(tmpl.irf))),
+           "centroid": _t0(lambda: lib.centroid(tmpl, hist,
+                                                3.0 * np.sqrt(lib.variance(tmpl.irf)))),
            "matched_coates": float("nan"), "coates_poisson": float("nan")}
     trials = cycles * keep
     try:
@@ -353,11 +345,16 @@ def precision(lib: Plidar, tmpl: Scene, hists: np.ndarray, totals: np.ndarray,
 
     For every other pixel the first photon fit of the whole histogram, keep
     1, gives t0, the signal and the background, and from them the bound v_p
-    for one group, keep 1/k. The pixel is split with split_groups and every
-    estimator runs on every group. A group estimate that is NaN, or further
-    than FAIL_BINS bins from that t0, is a failure. A pixel counts for an
-    estimator when at least 2 of its groups are left, and s_p^2 is their
-    variance (ddof 1).
+    for one group, keep 1/k. Every estimator also runs on the whole
+    histogram, then the pixel is split with split_groups and every estimator
+    runs on every group. A group estimate that is NaN, or further than
+    FAIL_BINS bins from the same estimator's estimate on the whole
+    histogram, is a failure; where the library refuses the whole histogram,
+    every group fails. Each estimator is judged against its own estimate
+    because a biased one sits at a constant offset from the first photon t0,
+    as the argmax does on a flat top, and that offset is not a failure. A
+    pixel counts for an estimator when at least 2 of its groups are left,
+    and s_p^2 is their variance (ddof 1).
 
     One row per class and estimator, in the order of CLASSES and
     ESTIMATORS: pixels is the pixels that count, groups the groups tried (k
@@ -396,11 +393,12 @@ def precision(lib: Plidar, tmpl: Scene, hists: np.ndarray, totals: np.ndarray,
             continue
         c = cls[p]
         tried[c] += k
+        ref = estimate_all(lib, tmpl, whole, cycles, 1.0, work)
         groups = np.ascontiguousarray(split_groups(hists[p], k, rng), dtype=np.float64)
         est = [estimate_all(lib, tmpl, g, cycles, keep, work) for g in groups]
         for j, name in enumerate(ESTIMATORS):
             t = np.array([e[name] for e in est])
-            ok = np.abs(t - fit.t0) <= tol  # NaN compares false
+            ok = np.abs(t - ref[name]) <= tol  # NaN compares false
             failed[c, j] += k - ok.sum()
             if ok.sum() >= 2:
                 s2[c][j].append(np.var(t[ok], ddof=1))

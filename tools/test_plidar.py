@@ -30,6 +30,14 @@ def test_table_scene_outlives_its_irf():
     assert np.array_equal(lib.rate(sc, sc.t0), before)
 
 
+def test_table_variance_of_a_triangle():
+    # Nodes 0, 5, 0 at -1, 0 and 1 ns: a triangle of half width 1 ns, whose
+    # variance is (1 ns)^2 / 6 whatever the height.
+    lib = Plidar()
+    irf = lib.table(np.array([0.0, 5.0, 0.0]), -1e-9, 1e-9)
+    assert abs(lib.variance(irf) / (1e-18 / 6.0) - 1.0) < 1e-12, lib.variance(irf)
+
+
 def test_first_photon_bindings_round_trip():
     lib = Plidar()
     sc = _gauss_scene(2.0 / 0.3)

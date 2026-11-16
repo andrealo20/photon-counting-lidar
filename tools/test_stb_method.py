@@ -156,41 +156,57 @@ def test_coates_refusal_is_a_counted_failure():
     assert all(r["pixels"] == 1 for r in seen), seen  # 3 groups left still count
 
 
+def test_each_estimator_is_judged_against_its_own_whole_estimate():
+    # A spike 8 bins after the edge holds the fullest bin of the whole
+    # histogram and of every group. The argmax agrees with itself, so it does
+    # not fail, though it sits more than FAIL_BINS from the first photon t0.
+    lib = Plidar()
+    irf = lib.table(*S.flat_top(BIN))
+    tmpl = _scene(irf, 1.0)
+    k, t0 = 4, 300.4 * BIN
+    rng = np.random.default_rng(8)
+    base = np.rint(lib.analytic(_scene(irf, 0.5, t0), CYCLES, SIM_FIRST_PHOTON))
+    groups = rng.binomial(base.astype(np.int64), 1 / k, (k, NBINS))
+    groups[:, 308] += 60
+    whole = groups.sum(axis=0)
+    edge = lib.mle_first_photon(tmpl, whole.astype(np.float64), CYCLES, 1.0,
+                                np.zeros(4 * NBINS)).t0
+    assert 308.5 * BIN - edge > S.FAIL_BINS * BIN, edge / BIN
+    split, S.split_groups = S.split_groups, lambda hist, k, rng: groups
+    try:
+        rows, _ = S.precision(lib, tmpl, whole[None], whole.sum(keepdims=True), CYCLES, k, rng)
+    finally:
+        S.split_groups = split
+    argmax = [r for r in rows if r["groups"] and r["estimator"] == "argmax"]
+    assert argmax[0]["failures"] == 0 and argmax[0]["pixels"] == 1, argmax
+
+
 def test_precision_excludes_pixels_above_the_cycle_count():
     lib = Plidar()
     irf = lib.table(*S.flat_top(BIN))
-    # M under the top of the classes, so that M + 1 counts sit inside one and
-    # only the cycle count can set the pixel aside.
+    # M under the top of the classes, so that M and M + 1 counts sit inside
+    # one and only the cycle count can set those pixels aside.
     m = 6800.0
-    assert any(lo <= m + 1 < hi for lo, hi in S.CLASSES)
+    assert any(lo <= m < m + 1 < hi for lo, hi in S.CLASSES)
     rng = np.random.default_rng(7)
     hists = np.array([np.rint(lib.analytic(_scene(irf, s, t0), m, SIM_FIRST_PHOTON))
                       for s, t0 in zip(rng.uniform(0.3, 3.0, 20),
                                        rng.uniform(60, 400, 20) * BIN)]).astype(np.int64)
-    # One pixel holds a count more than there were cycles, in bins no other
-    # pixel reaches, so any array of it handed to the library shows there.
+    # One pixel holds a count more than there were cycles and another exactly
+    # as many, in bins no other pixel reaches, so any array of either handed
+    # to the library shows there. The first photon model would take the
+    # second, so only the rule total >= M keeps it out.
     hists[7] = 0
     hists[7, 600:608] = 850
     hists[7, 608] = 1
+    hists[11] = 0
+    hists[11, 620:628] = 850
     spy = _Spy(lib)
     rows, excluded = S.precision(spy, S.template_scene(irf, NBINS, BIN), hists,
                                  hists.sum(axis=1), m, 4, rng)
-    assert excluded["at_or_above_cycles"] == 1, excluded
+    assert excluded["at_or_above_cycles"] == 2, excluded
     assert spy.arrays and not any(a[600:].any() for a in spy.arrays if a.size == NBINS)
-    assert sum(r["pixels"] for r in rows if r["estimator"] == "first_photon") == 19, rows
-
-
-def test_table_sd_integrates_the_density():
-    # The centroid's window comes from it; a dense trapezoid sum of the
-    # interpolated density gives the same number another way.
-    s, t_first, dt = S.flat_top(BIN)
-    t = t_first + dt * np.arange(s.size)
-    x = np.linspace(t[0], t[-1], 400001)
-    f = np.interp(x, t, s) / np.trapezoid(np.interp(x, t, s), x)
-    mean = np.trapezoid(x * f, x)
-    sd = np.sqrt(np.trapezoid((x - mean) ** 2 * f, x))
-    got = S._table_sd(Plidar().table(s, t_first, dt))
-    assert abs(got / sd - 1.0) < 1e-6, (got, sd)
+    assert sum(r["pixels"] for r in rows if r["estimator"] == "first_photon") == 18, rows
 
 
 def test_is_single_return_tells_one_return_from_two():

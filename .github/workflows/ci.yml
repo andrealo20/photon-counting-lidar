@@ -96,8 +96,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # numpy stays on the series the synthetic check was validated on: the
+      # check draws from numpy distributions whose streams may change between
+      # releases, and its bands are fixed.
       - name: Install
-        run: python -m pip install --quiet numpy matplotlib
+        run: python -m pip install --quiet "numpy==2.5.*" matplotlib
 
       - name: Build the shared object
         run: |

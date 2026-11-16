@@ -221,6 +221,9 @@ class Plidar:
         ]
         f.plidar_irf_init_table.restype = c_int
 
+        f.plidar_irf_variance.argtypes = [POINTER(Irf)]
+        f.plidar_irf_variance.restype = c_double
+
         f.plidar_crb_first_photon.argtypes = [
             POINTER(Scene), c_double, c_double, _D, c_size_t, POINTER(CrbResult)
         ]
@@ -306,6 +309,11 @@ class Plidar:
 
     def check(self, scene: Scene) -> None:
         _check(self.lib.plidar_scene_check(byref(scene)), "scene_check")
+
+    def variance(self, irf: Irf) -> float:
+        """Variance of the response in s^2; a table's is integrated cell by
+        cell in closed form."""
+        return self.lib.plidar_irf_variance(byref(irf))
 
     def rate(self, scene: Scene, t0: float):
         import numpy as np
