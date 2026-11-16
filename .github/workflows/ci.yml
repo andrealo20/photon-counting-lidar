@@ -128,6 +128,12 @@ jobs:
         working-directory: tools
         run: python test_stb_method.py
 
+      # The readers of the recorded sample, on inputs worked out by hand: the
+      # sample itself is never in CI.
+      - name: Test the readers of the recorded data
+        working-directory: tools
+        run: python test_real_stb.py
+
       # The method of the recorded data, run on simulated pixels whose cycle
       # count and response are known. The bands of its checks were fixed
       # before any recorded data went through it.

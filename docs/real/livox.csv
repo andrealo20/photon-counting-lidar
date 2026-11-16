@@ -1,0 +1,6 @@
+estimator,pixels,median_cm,spread_cm,within5_pct
+argmax,8860,4.82,11.99,32.4
+centroid,8860,0.00,10.22,37.3
+matched_coates,8860,0.00,9.06,42.1
+coates_poisson,8860,0.00,9.19,43.0
+first_photon,8860,0.00,9.56,42.5
