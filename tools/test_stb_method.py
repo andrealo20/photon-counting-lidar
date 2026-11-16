@@ -1,6 +1,7 @@
 """Checks for the method that reads the cycle count and the response out of
-recorded histograms. Plain asserts and numpy; every histogram comes from the
-library, through the calls the method makes on the real data."""
+recorded histograms and measures the estimators on groups of them. Plain
+asserts and numpy; every histogram comes from the library, through the calls
+the method makes on the real data."""
 
 from __future__ import annotations
 
@@ -19,23 +20,6 @@ CYCLES = 7000.0
 def _scene(irf, signal: float, t0: float = 300 * BIN):
     return Plidar.scene(period=NBINS * BIN, bin_width=BIN, t0=t0,
                         signal=signal, background=0.0, efficiency=1.0, irf=irf)
-
-
-def _l1(got, true) -> float:
-    """L1 distance between two tabulated densities, both at unit area.
-
-    got is used as fit_response returns it. true is moved so that the half
-    height point of its rising edge sits at t = 0, the origin fit_response
-    gives the recovered density, so a wrong t_first counts as a difference.
-    """
-    s, t_first, dt = got
-    t = t_first + dt * np.arange(s.size)
-    s0, _, dt0 = true
-    t0 = dt0 * (np.arange(s0.size) - S.rising_edge(s0))
-    x = np.linspace(min(t[0], t0[0]), max(t[-1], t0[-1]), 20001)
-    a = np.interp(x, t, s / np.trapezoid(s, t), left=0.0, right=0.0)
-    b = np.interp(x, t0, s0 / np.trapezoid(s0, t0), left=0.0, right=0.0)
-    return float(np.trapezoid(np.abs(a - b), x))
 
 
 def test_rising_edge_interpolates_between_bins():
@@ -88,7 +72,7 @@ def test_fit_response_recovers_the_density():
     mu = np.array([lib.rate(sc, t0) for t0 in rng.uniform(60, 560, 400) * BIN])
     edges = np.array([S.rising_edge(r) for r in mu])
     got = S.fit_response(mu, edges, BIN)
-    assert _l1(got, true) < 0.02, _l1(got, true)
+    assert S.l1_distance(got, true) < 0.02, S.l1_distance(got, true)
 
 
 def test_fit_response_is_exact_on_grid_phases():
@@ -103,7 +87,7 @@ def test_fit_response_is_exact_on_grid_phases():
     shift = rng.integers(60, 560, 200) + rng.integers(0, 8, 200) / 8
     mu = np.array([lib.rate(sc, x * BIN) for x in shift])
     got = S.fit_response(mu, shift, BIN, smooth=1e-6)
-    assert _l1(got, true) < 1e-4, _l1(got, true)
+    assert S.l1_distance(got, true) < 1e-4, S.l1_distance(got, true)
 
 
 def test_fit_response_does_not_depend_on_the_pixel_count():
@@ -117,6 +101,96 @@ def test_fit_response_does_not_depend_on_the_pixel_count():
     once = S.fit_response(mu, edges, BIN)[0]
     tiled = S.fit_response(np.tile(mu, (10, 1)), np.tile(edges, 10), BIN)[0]
     assert np.allclose(once, tiled, rtol=1e-9, atol=1e-12), np.abs(once - tiled).max()
+
+
+class _Spy:
+    """Hands every call on to the library and keeps a copy of each array it
+    was given."""
+
+    def __init__(self, lib):
+        self.lib, self.arrays = lib, []
+
+    def __getattr__(self, name):
+        method = getattr(self.lib, name)
+
+        def call(*args):
+            self.arrays += [a.copy() for a in args if isinstance(a, np.ndarray)]
+            return method(*args)
+        return call
+
+
+def test_coates_refusal_is_a_counted_failure():
+    lib = Plidar()
+    irf = lib.table(*S.flat_top(BIN))
+    tmpl = _scene(irf, 1.0)  # the estimators read only its grid and response
+    k, t0 = 4, 300.4 * BIN
+    quota = CYCLES / k  # the trials Coates gets for one group
+    # A bright return records in the first bins of the pulse. Scaled to quota
+    # counts, every trial of the group records, so Coates runs out at the
+    # group's last count; the first photon model only needs counts <= M.
+    bright = lib.analytic(_scene(irf, 3.6, t0), CYCLES, SIM_FIRST_PHOTON)
+    group = np.rint(bright * quota / bright.sum())
+    group[np.argmax(group)] += quota - group.sum()
+    est = S.estimate_all(lib, tmpl, group, CYCLES, 1 / k, np.zeros(4 * NBINS))
+    assert np.isnan(est["matched_coates"]) and np.isnan(est["coates_poisson"]), est
+    assert np.isfinite(est["first_photon"]), est
+
+    # The same group as one of the k of a pixel whose other groups Coates
+    # accepts. split_groups is swapped for one that returns these groups, so
+    # precision meets exactly that group.
+    rng = np.random.default_rng(6)
+    weaker = np.rint(lib.analytic(_scene(irf, 2.0, t0), CYCLES, SIM_FIRST_PHOTON))
+    groups = np.vstack([group, rng.binomial(weaker.astype(np.int64), 1 / k,
+                                            (k - 1, NBINS))]).astype(np.int64)
+    assert (groups[1:].sum(axis=1) < quota).all()
+    whole = groups.sum(axis=0)
+    split, S.split_groups = S.split_groups, lambda hist, k, rng: groups
+    try:
+        rows, _ = S.precision(lib, tmpl, whole[None], whole.sum(keepdims=True), CYCLES, k, rng)
+    finally:
+        S.split_groups = split
+    seen = [r for r in rows if r["groups"]]
+    assert {r["estimator"]: r["failures"] for r in seen} == {
+        "argmax": 0, "centroid": 0, "matched_coates": 1, "coates_poisson": 1,
+        "first_photon": 0}, seen
+    assert all(r["pixels"] == 1 for r in seen), seen  # 3 groups left still count
+
+
+def test_precision_excludes_pixels_above_the_cycle_count():
+    lib = Plidar()
+    irf = lib.table(*S.flat_top(BIN))
+    # M under the top of the classes, so that M + 1 counts sit inside one and
+    # only the cycle count can set the pixel aside.
+    m = 6800.0
+    assert any(lo <= m + 1 < hi for lo, hi in S.CLASSES)
+    rng = np.random.default_rng(7)
+    hists = np.array([np.rint(lib.analytic(_scene(irf, s, t0), m, SIM_FIRST_PHOTON))
+                      for s, t0 in zip(rng.uniform(0.3, 3.0, 20),
+                                       rng.uniform(60, 400, 20) * BIN)]).astype(np.int64)
+    # One pixel holds a count more than there were cycles, in bins no other
+    # pixel reaches, so any array of it handed to the library shows there.
+    hists[7] = 0
+    hists[7, 600:608] = 850
+    hists[7, 608] = 1
+    spy = _Spy(lib)
+    rows, excluded = S.precision(spy, S.template_scene(irf, NBINS, BIN), hists,
+                                 hists.sum(axis=1), m, 4, rng)
+    assert excluded["at_or_above_cycles"] == 1, excluded
+    assert spy.arrays and not any(a[600:].any() for a in spy.arrays if a.size == NBINS)
+    assert sum(r["pixels"] for r in rows if r["estimator"] == "first_photon") == 19, rows
+
+
+def test_table_sd_integrates_the_density():
+    # The centroid's window comes from it; a dense trapezoid sum of the
+    # interpolated density gives the same number another way.
+    s, t_first, dt = S.flat_top(BIN)
+    t = t_first + dt * np.arange(s.size)
+    x = np.linspace(t[0], t[-1], 400001)
+    f = np.interp(x, t, s) / np.trapezoid(np.interp(x, t, s), x)
+    mean = np.trapezoid(x * f, x)
+    sd = np.sqrt(np.trapezoid((x - mean) ** 2 * f, x))
+    got = S._table_sd(Plidar().table(s, t_first, dt))
+    assert abs(got / sd - 1.0) < 1e-6, (got, sd)
 
 
 def test_is_single_return_tells_one_return_from_two():

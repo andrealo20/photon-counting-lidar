@@ -125,6 +125,13 @@ jobs:
         working-directory: tools
         run: python test_stb_method.py
 
+      # The method of the recorded data, run on simulated pixels whose cycle
+      # count and response are known. The bands of its checks were fixed
+      # before any recorded data went through it.
+      - name: Check the method on synthetic data
+        working-directory: tools
+        run: python real_stb.py --synthetic
+
       # A short sweep rather than the published one. It proves the binding and
       # the whole pipeline still work; reproducing the figure takes a couple
       # of minutes and belongs on a workstation.

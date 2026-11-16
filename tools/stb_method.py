@@ -1,5 +1,5 @@
 """The cycle count and the instrument response, read out of recorded
-histograms alone.
+histograms alone, and the precision of the depth estimators on them.
 
 A pixel of the sensor records at most one photon per laser cycle, and the
 number of cycles M is not in the data. Coates undoes that pile up only with
@@ -11,16 +11,24 @@ corrected rates of pixels that hold one return are aligned on their rising
 edges and fitted with a piecewise linear density, which becomes the table
 the library uses for the response (fit_response).
 
+A recorded pixel is one acquisition, so the spread of an estimator cannot be
+seen on it directly. Splitting its counts at random into K_GROUPS groups
+gives K_GROUPS histograms thinned with keep 1/K_GROUPS, and the spread of an
+estimator over them is its precision on one group, set against the first
+photon bound for that keep (precision). What is measured is the precision
+on a group, not on the whole histogram.
+
 Every number this module produces about a histogram (Coates, rates, analytic
-histograms) comes from the library. numpy does the bookkeeping, the
-alignment, the least squares fit and the statistics.
+histograms, estimates, bounds) comes from the library. numpy does the
+bookkeeping, the alignment, the least squares fit, the splitting and the
+statistics.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from plidar import Plidar, PlidarError
+from plidar import Irf, Plidar, PlidarError, Scene, tof_to_range
 
 # Flux classes, by total recorded counts per pixel. The search for M stops at
 # 6400 so that every pixel it uses has cycles left at the smallest M tried.
@@ -28,11 +36,20 @@ CLASSES = [(1500, 3000), (3000, 4500), (4500, 6000), (6000, 6500), (6500, 7000)]
 SEARCH_CLASSES = [(1500, 3000), (3000, 4500), (4500, 6000), (6000, 6400)]
 M_GRID = np.arange(6500, 9001, 100)
 
-# Weight of the second difference penalty in fit_response, to be fixed on the
-# synthetic data before the method sees the real data. Each phase is weighted
-# by its share of the pixels, so the penalty acts the same however many
-# pixels enter the fit.
-SMOOTH = 10.0 / 1500
+# Weight of the second difference penalty in fit_response, fixed on the
+# synthetic pixels of real_stb.py --synthetic before the method saw recorded
+# data: the smallest value on a grid of quarter decades at which the fitted
+# response stays within half the band of that check (L1 0.025) for seeds 1
+# to 8. A smaller penalty lets more noise into the fit, a larger one rounds
+# off more of a real shape. Each phase is weighted by its share of the
+# pixels, so the penalty acts the same however many pixels enter the fit.
+SMOOTH = 10.0 ** -2.25
+
+ESTIMATORS = ("argmax", "centroid", "matched_coates", "coates_poisson", "first_photon")
+K_GROUPS = 4
+# A group estimate further than this from the t0 of the whole histogram is
+# not a noisy version of it but a different answer, so it counts as a failure.
+FAIL_BINS = 5.0
 
 
 def flat_top(unit: float, oversample: int = 8,
@@ -245,3 +262,159 @@ def split_groups(hist: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarr
     keep 1/k, and the groups add up to hist exactly."""
     # multinomial refuses to cast the uint64 counts lib.simulate returns
     return rng.multinomial(np.asarray(hist, dtype=np.int64), [1 / k] * k).T
+
+
+def l1_distance(got, true) -> float:
+    """L1 distance between two tabulated densities, both at unit area.
+
+    got is used as fit_response returns it. true is moved so that the half
+    height point of its rising edge sits at t = 0, the origin fit_response
+    gives the recovered density, so a wrong t_first counts as a difference.
+    """
+    s, t_first, dt = got
+    t = t_first + dt * np.arange(s.size)
+    s0, _, dt0 = true
+    t0 = dt0 * (np.arange(s0.size) - rising_edge(s0))
+    x = np.linspace(min(t[0], t0[0]), max(t[-1], t0[-1]), 20001)
+    a = np.interp(x, t, s / np.trapezoid(s, t), left=0.0, right=0.0)
+    b = np.interp(x, t0, s0 / np.trapezoid(s0, t0), left=0.0, right=0.0)
+    return float(np.trapezoid(np.abs(a - b), x))
+
+
+def template_scene(irf: Irf, nbins: int, bin_width: float) -> Scene:
+    """The scene the estimators take as their template: the time grid and
+    the response. They read neither its t0 nor its amplitudes, which are
+    placeholders, and efficiency 1 leaves the amplitudes they fit in
+    detected photons."""
+    return Plidar.scene(period=nbins * bin_width, bin_width=bin_width, t0=0.0,
+                        signal=1.0, background=0.0, efficiency=1.0, irf=irf)
+
+
+def _table_sd(irf: Irf) -> float:
+    """Standard deviation of a tabulated response, in seconds."""
+    f = np.ctypeslib.as_array(irf.table, shape=(irf.n,))  # the normalised density
+    k = np.arange(irf.n)
+    mean = np.average(k, weights=f)
+    # A linear interpolant with zero ends is a sum of hats of half width one
+    # node, each with mass f_k, mean k and variance 1/6 in node units.
+    return float(np.sqrt(np.average((k - mean) ** 2, weights=f) + 1.0 / 6.0)) * irf.dt
+
+
+def _t0(fit) -> float:
+    try:
+        return fit().t0
+    except PlidarError:
+        return float("nan")
+
+
+def estimate_all(lib: Plidar, tmpl: Scene, hist: np.ndarray, cycles: float,
+                 keep: float, work: np.ndarray) -> dict[str, float]:
+    """t0 in seconds from every estimator of ESTIMATORS, NaN where the
+    library refuses.
+
+    hist is a recorded histogram, keep 1, or one group of a split, keep
+    1/k, as contiguous float64 counts. cycles is M, the cycles of the whole
+    acquisition, and work holds at least 4*nbins doubles.
+
+    argmax is the centre of the fullest bin, and the centroid takes the raw
+    counts over three standard deviations of the response either side of
+    it. A group keeps each count with probability keep, so on average it is
+    the record of M*keep cycles at the same rates: the matched filter and
+    "Coates then Poisson" correct it with M*keep trials, and both give NaN
+    when its counts reach M*keep and Coates refuses. The first photon fit
+    takes the counts as they are, with M and keep.
+    """
+    out = {"argmax": float((np.argmax(hist) + 0.5) * tmpl.bin_width),
+           "centroid": _t0(lambda: lib.centroid(tmpl, hist, 3.0 * _table_sd(tmpl.irf))),
+           "matched_coates": float("nan"), "coates_poisson": float("nan")}
+    trials = cycles * keep
+    try:
+        mu = lib.coates_d(hist, trials)
+    except PlidarError:
+        pass
+    else:
+        out["matched_coates"] = _t0(lambda: lib.matched(tmpl, mu, work))
+        out["coates_poisson"] = _t0(lambda: lib.mle(tmpl, mu * trials, trials, work))
+    out["first_photon"] = _t0(lambda: lib.mle_first_photon(tmpl, hist, cycles, keep, work))
+    return out
+
+
+def precision(lib: Plidar, tmpl: Scene, hists: np.ndarray, totals: np.ndarray,
+              cycles: float, k: int, rng: np.random.Generator) -> tuple[list[dict], dict]:
+    """Spread of every estimator over the k groups of each pixel, against
+    the first photon bound for one group, by flux class.
+
+    hists holds one histogram of integer counts per row, totals their sums,
+    cycles is M and tmpl comes from template_scene. A pixel whose total
+    reaches M is outside the first photon model, which allows one record per
+    cycle, and is set aside before the library sees it. So is a pixel whose
+    total falls outside CLASSES, or whose whole histogram the first photon
+    fit or its bound refuses. The second value returned counts each kind.
+
+    For every other pixel the first photon fit of the whole histogram, keep
+    1, gives t0, the signal and the background, and from them the bound v_p
+    for one group, keep 1/k. The pixel is split with split_groups and every
+    estimator runs on every group. A group estimate that is NaN, or further
+    than FAIL_BINS bins from that t0, is a failure. A pixel counts for an
+    estimator when at least 2 of its groups are left, and s_p^2 is their
+    variance (ddof 1).
+
+    One row per class and estimator, in the order of CLASSES and
+    ESTIMATORS: pixels is the pixels that count, groups the groups tried (k
+    for each pixel of the class with a bound), failures the failed ones
+    among them, ratio sqrt(sum s_p^2 / sum v_p) and bound_mm the median of
+    sqrt(v_p) as a distance in mm, both over the pixels that count and NaN
+    when there are none.
+    """
+    totals = np.asarray(totals)
+    keep = 1.0 / k
+    tol = FAIL_BINS * tmpl.bin_width
+    work = np.zeros(4 * tmpl.nbins)
+    cls = np.full(totals.shape, -1)
+    for c, (lo, hi) in enumerate(CLASSES):
+        cls[(totals >= lo) & (totals < hi)] = c
+    over = totals >= cycles
+    excluded = {"at_or_above_cycles": int(over.sum()),
+                "outside_classes": int((~over & (cls < 0)).sum()),
+                "no_whole_fit": 0}
+    # A copy of the template carries each pixel's fit into the bound.
+    bound = Scene.from_buffer_copy(tmpl)
+    bound._keep = getattr(tmpl, "_keep", None)
+    tried = np.zeros(len(CLASSES), dtype=int)
+    failed = np.zeros((len(CLASSES), len(ESTIMATORS)), dtype=int)
+    s2 = [[[] for _ in ESTIMATORS] for _ in CLASSES]
+    v = [[[] for _ in ESTIMATORS] for _ in CLASSES]
+
+    for p in np.flatnonzero(~over & (cls >= 0)):
+        whole = np.ascontiguousarray(hists[p], dtype=np.float64)
+        try:
+            fit = lib.mle_first_photon(tmpl, whole, cycles, 1.0, work)
+            bound.t0, bound.signal, bound.background = fit.t0, fit.signal, fit.background
+            var = lib.crb_first_photon(bound, cycles, keep, work).var_tof_joint
+        except PlidarError:
+            excluded["no_whole_fit"] += 1
+            continue
+        c = cls[p]
+        tried[c] += k
+        groups = np.ascontiguousarray(split_groups(hists[p], k, rng), dtype=np.float64)
+        est = [estimate_all(lib, tmpl, g, cycles, keep, work) for g in groups]
+        for j, name in enumerate(ESTIMATORS):
+            t = np.array([e[name] for e in est])
+            ok = np.abs(t - fit.t0) <= tol  # NaN compares false
+            failed[c, j] += k - ok.sum()
+            if ok.sum() >= 2:
+                s2[c][j].append(np.var(t[ok], ddof=1))
+                v[c][j].append(var)
+
+    rows = []
+    for c, (lo, hi) in enumerate(CLASSES):
+        for j, name in enumerate(ESTIMATORS):
+            vp = np.array(v[c][j])
+            rows.append({
+                "class_lo": lo, "class_hi": hi, "estimator": name,
+                "pixels": vp.size, "groups": int(tried[c]), "failures": int(failed[c, j]),
+                "ratio": float(np.sqrt(np.sum(s2[c][j]) / vp.sum())) if vp.size else float("nan"),
+                "bound_mm": float(np.median(tof_to_range(np.sqrt(vp)))) * 1e3
+                if vp.size else float("nan"),
+            })
+    return rows, excluded
