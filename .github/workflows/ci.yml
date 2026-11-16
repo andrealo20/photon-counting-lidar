@@ -121,6 +121,10 @@ jobs:
         working-directory: tools
         run: python test_fetch_stb.py
 
+      - name: Test the cycle count and response estimation
+        working-directory: tools
+        run: python test_stb_method.py
+
       # A short sweep rather than the published one. It proves the binding and
       # the whole pipeline still work; reproducing the figure takes a couple
       # of minutes and belongs on a workstation.
