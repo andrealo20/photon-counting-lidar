@@ -300,17 +300,27 @@ these scenes and not of the formula.
 
 ### The zero background case
 
-With B exactly zero the three parameter system stops being invertible in
-floating point. Every bin the return does not reach has an expected count of
-zero, so observing nothing there determines the background exactly, the
-information about it runs away, and the products in the cofactor overflow.
+With B exactly zero the joint bound takes the background as known and inverts
+the two by two block of t0 and A. This holds for `plidar_crb` and for the
+first photon bound of section 8. Every bin the return does not reach has an
+expected count of zero, so observing nothing there determines the background
+exactly: its information is infinite, and a background known exactly leaves
+two parameters.
 
-That is a property of the model rather than a numerical accident, and it has a
-clean limit: a background known exactly leaves two parameters, not three. The
-library detects the overflow and drops B from the system, inverting the
-remaining two by two block. Because the derivative of the response integrates
-to zero, t0 and A are close to orthogonal and the answer lands near the bound
-with everything known, which is what the background free limit should give.
+The rule tests B itself, before any inversion, because the arithmetic cannot
+be relied on to show the limit. A bin with a rate of zero is skipped so as not
+to divide by it. With a Gaussian or an EMG the far tail leaves rates next to
+those bins small enough that the information overflows and the three parameter
+cofactor fails, or pins B so well that the cofactor agrees with the pair to
+rounding. A table is exactly zero outside its support, so nothing overflows,
+the skipped bins take their information with them, and the cofactor would
+return a finite three parameter bound that is too pessimistic. With any
+background the three parameter inverse is used, and the pair only where that
+inverse does not come out finite and positive.
+
+Because the derivative of the response integrates to zero, t0 and A are close
+to orthogonal, and the answer lands near the bound with everything known,
+which is what the background free limit should give.
 
 ## 7. What the tests actually establish
 
@@ -356,16 +366,17 @@ The sensor has 256 by 192 pixels. Each pixel is a histogram of 672 bins of
 return the bins are empty: the median bin holds no counts, so there is next to
 no background.
 
-Pile up is extreme. A pixel records at most one photon per cycle, the totals
-crowd up just under the cycle count, and more than half the pixels the
-precision is measured on hold 6000 photons or more out of 7000 cycles. In such
-a pixel most cycles record on the rising edge of the return, so the recorded
-shape changes with flux. Averaged over five flux classes and aligned on the
-rising edge, the class shapes differ by 0.226 in mean L1 distance as recorded
-and still by 0.152 after Coates (`docs/real/shapes.png`).
+Pile up is extreme. More than half the pixels the precision is measured on
+hold 6000 photons or more out of 7000 cycles. In such a pixel most cycles
+record on the rising edge of the return, so the recorded shape changes with
+flux. Averaged within each of the 5 flux classes and aligned on the rising
+edge, the class shapes differ by 0.226 in mean L1 distance as recorded and
+still by 0.152 after Coates (`docs/real/shapes.png`). That distance spans all
+5 classes; the collapse curve of the cycle count below uses only the 4 under
+6400 photons.
 
 The response the dataset publishes, `config/IRF_global.csv`, is 1.5 ns wide
-at half height and dips slightly negative. The returns here are about four
+at half height and dips slightly negative. The returns here are about 4
 times as wide, so the response is fitted to the histograms instead.
 `config/offset.txt` gives an offset per pixel in metres, calibrated for the
 dataset's own conversion of the fullest bin p to a range, (p - 17) c delta / 2
@@ -401,45 +412,40 @@ that origin needs a calibration offset, as the fullest bin does.
 The peak bound the Monte Carlo needs is the largest node, exact for a
 piecewise linear density. Mean and variance are integrated cell by cell in
 closed form. The template of the estimators covers the whole support instead
-of ten standard deviations. The Monte Carlo draws arrival times by rejection
-against the interpolated density, which is why the parity test checks less for
-a table than for the EMG (section 7).
+of ten standard deviations.
 
 ### The first photon bound
 
 Section 6 bounds a histogram of Poisson counts, which is what Coates gives
 back in the mean. A recorded histogram is multinomial instead: each cycle puts
 its one record in one bin or in none. With mu_i = a g_i(t0) + b photons per
-cycle in bin i, a = eta S and b = eta B delta, and S_i the rate summed over the
-bins before i, a cycle records in bin i with probability
+cycle in bin i, a = eta S and b = eta B delta, and Lambda_i the rate summed
+over the bins before i, a cycle records in bin i with probability
 
-    P_i = exp( -S_i ) * ( 1 - exp( -mu_i ) )
+    P_i = exp( -Lambda_i ) * ( 1 - exp( -mu_i ) )
 
-and records nothing with probability P_0 = exp( -S_n ).
+and records nothing with probability P_none = exp( -Lambda_n ).
 
-A recorded pixel is a single acquisition, so its precision is read from random
-groups of its counts (below). A group is the histogram thinned: each count
-survives with probability q, the keep. A thinned histogram is multinomial too,
-with categories q P_i and one more, 1 - q (1 - P_0), for the cycles that left
-no kept record. Its Fisher information for theta = (t0, a, b) is
+The precision is read from groups of a pixel's counts (below), and a group is
+the histogram thinned: each count survives with probability q, the keep. A
+thinned histogram is multinomial too, with categories q P_i and one more,
+1 - q (1 - P_none), for the cycles that left no kept record. Its Fisher
+information for theta = (t0, a, b) is
 
-    I = M * [ q * sum_i dP_i dP_i^T / P_i  +  q^2 * dP_0 dP_0^T / (1 - q + q P_0) ]
+    I = M * [ q * sum_i dP_i dP_i^T / P_i
+              + q^2 * dP_none dP_none^T / (1 - q + q P_none) ]
 
-    dP_i = exp( -S_i ) * [ exp( -mu_i ) dmu_i - ( 1 - exp( -mu_i ) ) dS_i ]
-    dP_0 = -P_0 dS_n
+    dP_i = exp( -Lambda_i ) * [ exp( -mu_i ) dmu_i - ( 1 - exp( -mu_i ) ) dLambda_i ]
+    dP_none = -P_none dLambda_n
 
-and running sums of S and of its derivatives give it in one pass over the
-bins. At q = 1 it is the ordinary multinomial. The inversion and the rule for
-zero background are those of section 6.
+and running sums of Lambda and of its derivatives give it in one pass over
+the bins. At q = 1 it is the ordinary multinomial. It is inverted as in
+section 6, which also gives the rule for a background of exactly zero.
 
-The tests check that it matches the Poisson bound at low flux. With the
-support inside the window the timing information scales exactly as q, because
-dP_0/dt0 = -P_0 a sum_i dg_i/dt0 and the g_i sum to one at every t0. The
-curvature of the expected log likelihood, taken by finite differences in the
-test, gives the same matrix, and doubling the step quadruples the difference.
-The joint bound never falls below the one with the amplitudes known, and
-inverting the matrix a second way, after rescaling it to a unit diagonal,
-gives the same number.
+The tests check it against the Poisson bound at low flux, and check that the
+timing information scales exactly as q while the support lies inside the
+window, where the g_i sum to one at every t0. The curvature and second
+inversion checks of the Poisson bound (section 7) run on it as well.
 
 ### The first photon fit
 
@@ -451,8 +457,8 @@ the Poisson likelihood gives the late bins more weight than they carry.
 `plidar_est_mle_first_photon` fits the multinomial model to the counts as
 recorded,
 
-    L(t0, a, b) = sum_i n_i log( q P_i ) + n_0 log( 1 - q (1 - P_0) )
-    n_0 = M - sum_i n_i
+    L(t0, a, b) = sum_i n_i log( q P_i ) + n_none log( 1 - q (1 - P_none) )
+    n_none = M - sum_i n_i
 
 with M and q known and a, b >= 0. It needs no correction in front, weighs each
 bin by the cycles that could still record in it, and with q < 1 takes one group
@@ -466,8 +472,8 @@ Newton steps on (a, b), with the gradient and Hessian from the same pass as L,
 each step halved until L does not drop. A background of zero is a legitimate
 answer: a step that would take b below zero stops at zero, and from there b
 can stay while a moves alone. Everything in L is concave in (a, b) except the
-empty category, which for q < 1 is convex in S_n. Where that makes the Hessian
-indefinite it is left out of the curvature, and the step still climbs.
+empty category, which for q < 1 is convex in Lambda_n. Where that makes the
+Hessian indefinite it is left out of the curvature, and the step still climbs.
 
 Under pile up t0 and a are coupled, since a brighter return records earlier
 and a later t0 makes up for it. In the test scene their squared correlation in
@@ -504,36 +510,37 @@ percent of the peak. It sets aside 1663 odd pixels and leaves 19808.
 ### The cycle count
 
 The method was designed to take M from the collapse of the shapes. For each M
-on a grid from 6500 to 9000, Coates corrects the even pixels, each flux class
-is averaged into one shape aligned on the rising edge, and M is where the class
-shapes agree best: too large an M under-corrects, too small an M
-over-corrects. On sample 1 the minimum is at 6900. The design also asked for M
-to be checked on a second sample before anything was published, and that check
-fired. On sample 2 the curve falls to the lower edge of the grid, so its
-minimum is at 6500 or below, although about a quarter of the valid pixels there
-have totals above 6500 and no M can sit below a total. Both frames come from
-the same sensor and differ in the scene, and sample 2 has 6751 even pixels in
-the faintest class against 1697 in sample 1. Where the shapes agree depends on
-which pixels the scene holds.
+on a grid from 6500 to 9000, Coates corrects the even pixels, each of the 4
+flux classes under 6400 photons is averaged into one shape aligned on the
+rising edge, and M is where the class shapes agree best: too large an M
+under-corrects, too small an M over-corrects. The limit of 6400 leaves every
+pixel some cycles at the smallest M tried. On sample 1 the minimum is at 6900.
+The design also asked for M to be checked on a second sample before anything
+was published, and that check fired. On sample 2 the curve falls to the lower
+edge of the grid, so its minimum is at 6500 or below, although about a quarter
+of the valid pixels there have totals above 6500 and no M can sit below a
+total. Both frames come from the same sensor and differ in the scene, and
+sample 2 has 6751 even pixels in the faintest class against 1697 in sample 1.
+Where the shapes agree depends on which pixels the scene holds.
 
 So M is now the ceiling of the totals: the smallest multiple of 100 at or
 above the 99.9th percentile of the totals of the valid even pixels. No pixel
 can record more photons than there were cycles, so the totals bound M from
 below, and on a sensor whose brightest pixels record in nearly every cycle
-they crowd up just under it. The percentile keeps a rare pixel far above the
-rest from setting M: one reaches 8424 in sample 1, more than one record per
-cycle allows. Pixels at or above M are set aside, 4 even and 3 odd. Both
-samples give 7000, from 99.9th percentiles of 6938 and 6951. The change came
-after the check on sample 2 fired and after a first run on sample 1, and the
-bands of the synthetic check stayed as they were. The collapse stays as a
-diagnostic: every run prints its curve, and `docs/real/collapse.csv` holds
-the one of sample 1.
+they crowd up just under it. The percentile keeps the few pixels above the
+rest from setting M: 4 even pixels hold 7060 to 7835 counts, more than one
+record per cycle allows. Pixels at or above M are set aside, those 4 and 3
+odd ones, the highest at 8424. Both samples give 7000, from 99.9th
+percentiles of 6938 and 6951. The change came after the check on sample 2
+fired and after a first run on sample 1, and the bands of the synthetic check
+stayed as they were. The collapse stays as a diagnostic: every run prints its
+curve, and `docs/real/collapse.csv` holds the one of sample 1.
 
 The ceiling falls short when no pixel comes near saturation. The synthetic
 check shows it: its flux tops out at 97.3 percent of cycles detected, and the
-ceiling gives 6900 for a true 7000. That 1.4 percent describes how bright the
-synthetic pixels are more than how good the estimate is, and says nothing about
-its error on the recorded frame.
+ceiling gives 6900 for a true 7000. That 1.4 percent follows from how bright
+the synthetic pixels are and says nothing about the error on the recorded
+frame.
 
 ### The response
 
@@ -563,9 +570,12 @@ of them. Each group is the histogram thinned with q = 1/4, and the groups add
 up to it. Every estimator runs on the whole histogram and on every group. The
 first photon fit takes the counts as they are, with M and q. The matched filter
 and Coates then Poisson first apply Coates with M q trials, since a group is on
-average the record of M q cycles at the same rates. A group whose counts reach
-M q has no Coates inverse and counts as a failure, and so does a group estimate
-more than 5 bins from the same estimator's estimate on the whole histogram.
+average the record of M q cycles at the same rates. A group counts as a
+failure when its counts reach M q and Coates has no inverse, when an estimator
+refuses it, as the matched filter does with a return beyond the reach of its
+template, or when its estimate lies more than 5 bins from the same estimator's
+estimate on the whole histogram. Where an estimator refuses the whole
+histogram, all 4 groups fail.
 
 The bound for a pixel is the first photon bound with keep q, at the t0 and
 amplitudes the first photon fit finds on its whole histogram. For each flux
@@ -591,25 +601,28 @@ independent histograms.
 `tools/real_stb.py --synthetic` runs in CI. The library simulates 3000 pixels
 with a flat topped table, first photon detection, M = 7000, no background and
 fluxes across the classes of the recorded frame, and the same steps run on
-them. The bands were fixed before any recorded data went through the method
-and have not moved: M within 3 percent of the truth, the fitted response
-within 0.05 of the true one in L1, the first photon ratio between 0.90 and
-1.15 in every class, and the split against independent groups between 0.90
-and 1.10. With seed 1 it gives M = 6900, an L1 of 0.0133 and first photon
-ratios from 1.012 to 1.062. The other estimators are printed without a band.
+them, the filter for a single return included. The bands were fixed before
+any recorded data went through the method and have not moved: M within 3
+percent of the truth, the fitted response within 0.05 of the true one in L1,
+the first photon ratio between 0.90 and 1.15 in every class, and the split
+against independent groups between 0.90 and 1.10. With seed 1 the filter sets
+aside none of the 1500 odd pixels under M, and the check gives an L1 of 0.0133
+and first photon ratios from 1.012 to 1.062. The other estimators are printed
+without a band.
 
 ### What came out
 
-In `docs/real/precision.csv`, from the faintest class to the brightest, the
-first photon fit sits at 1.285, 1.357, 1.138, 1.009 and 0.975 times the bound
-and loses no group. Coates then Poisson sits at 1.292, 1.403, 1.478, 1.935 and
-2.721, and loses 1.9 percent of the brightest class's groups to Coates. Where
-pile up is strong the first photon fit is at the bound and Coates then Poisson
-1.9 to 2.7 times above it, as in the Monte Carlo test. The matched filter on
-Coates sits between 1.640 and 2.433 and loses 2.0 percent of the brightest
-class's groups, the centroid sits between 1.010 and 1.517, and the fullest
-bin, which reads whole bins, between 5.611 and 11.016. The bound for one group
-goes from 12.50 mm in the faintest class to 6.88 mm in the brightest.
+Where pile up is strong the first photon fit is at the bound and Coates then
+Poisson at 1.9 to 2.7 times it, as in the Monte Carlo test; the README gives
+every class. The centroid sits between 1.010 and 1.517 times the bound, and
+the fullest bin, which reads whole bins, between 5.611 and 11.016.
+
+The matched filter on Coates refuses the whole histogram of 3695 odd pixels,
+3585 of them in the brightest class. Their returns sit 35 to 41 bins from the
+start of the record, at or beyond the reach of a template that spans 40 bins
+either side of a candidate, the length of the response's tail (section 5).
+That takes 73.6 percent of the brightest class's groups, of the 74.1 percent
+lost, and its ratio of 2.706 comes from the 1283 pixels left.
 
 ### The Livox reference
 
@@ -625,45 +638,54 @@ nearly flat in the row direction, so the shift is only loosely pinned. Only
 pixels with a compact reference enter, at least 4 points whose quartiles lie
 within 5 cm of each other.
 
-On 8922 odd pixels the residuals spread by 9.20 to 10.34 cm for the four
-estimators that place their origin on the rising edge, whose medians are
-removed, and by 12.08 cm for the fullest bin, the only one in the dataset's own
-conversion, whose median is 4.70 cm. The residual has a structure by rows that
-every estimator shares: for the first photon fit, medians over bands of 24 rows
-go from -14.7 to +10.2 cm. That points at calibration and registration. The
-reference agrees with every estimator to about a decimetre and cannot rank
-estimators whose bound for one group is 6.9 to 12.5 mm.
+The residuals are taken on 8922 odd pixels, and on 8446 for the matched
+filter, which refuses the rest. The fullest bin is the only estimator in the
+dataset's own conversion: its median is 4.70 cm and its residuals spread by
+12.08 cm. The other four are each offset from that conversion, so each one's
+median, 184 to 220 cm, is removed first, and the residuals then spread by 9.06
+to 10.34 cm. The residual has a structure by rows that every estimator shares:
+for the first photon fit, medians over bands of 24 rows go from -14.7 to
++10.2 cm. That points at calibration and registration. A spread of about a
+decimetre cannot rank estimators whose bound for one group is 6.9 to 12.5 mm.
 
 ### Limits
 
 - In the two faintest classes both likelihood fits sit 1.28 to 1.40 times the
   bound, close to each other, while on synthetic pixels the first photon fit
   stays within 1.012 to 1.062 in every class. The two handle pile up in
-  different ways and share everything else, so the excess comes from the model
-  of the return. The likeliest cause is the response. Its density is still 2.0
-  percent of the peak 30 bins after the edge and the fit cuts it at 40 bins,
-  and one response serves every flux, although the class shapes still differ
-  after Coates.
+  different ways and share the response, M and the first photon model of a
+  single detector, applied to a sum of 9 SPADs, so the excess likely comes
+  from one of these. The response is a strong candidate. Its density is still
+  2.0 percent of the peak 30 bins after the edge and the fit cuts it at 40
+  bins, and one response serves every flux, although the class shapes still
+  differ after Coates. M moves these two classes too (below).
 - In the brightest class the first photon fit sits at 0.975. Counting 3
   degrees of freedom for each of its 4870 pixels, the standard error of that
-  ratio is about 0.6 percent, so it lies about 4 standard errors under 1. There
-  the bound, computed with the shared response, is too pessimistic, consistent
-  with a pulse narrower than the response in the brightest pixels: after Coates
-  that class still peaks higher and narrower than the others
+  ratio is about 0.6 percent, which would put it about 4 standard errors
+  under 1. That standard error ignores the spread of the bound across pixels
+  and the dependence between the groups of one pixel, so it is only a rough
+  guide, and at M = 6900 the same class reads 0.996. The bound, computed with
+  the shared response, may be slightly pessimistic there, which would fit a
+  pulse narrower than the response in the brightest pixels: after Coates that
+  class still peaks higher and narrower than the others
   (`docs/real/shapes.png`).
 - Each pixel sums 9 SPADs. The sum follows the first photon model of a single
   detector only if the 9 share one profile of rates.
 - One M serves every pixel of the frame, read off the totals and rounded up to
-  a hundred. Coates and the first photon fit both take it as exact, and the
-  brightest pixels, with the fewest cycles left, depend on it most.
+  a hundred, and Coates and the first photon fit both take it as exact. Run
+  again at M = 6900 and 7100 with `--cycles`, the first photon ratio ranges
+  over 1.238 to 1.295, 1.312 to 1.380, 1.110 to 1.139, 1.009 to 1.014 and
+  0.972 to 0.996 from the faintest class to the brightest, and Coates then
+  Poisson over 1.245 to 1.298, 1.363 to 1.403, 1.447 to 1.489, 1.787 to 2.120
+  and 2.444 to 2.936. The first photon fit moves most in the two faintest
+  classes, by up to 0.068, and Coates then Poisson in the two brightest, by up
+  to 0.49.
 - One scene. Everything above comes from one frame, and a second frame entered
   only to check M.
 - Only pixels with a single return are measured. The 1663 odd pixels the
   criterion sets aside are the hardest ones in the scene, and a second surface
   within about 14 bins (1.6 m) of the first merges with it and passes.
-- The Livox reference is limited by calibration and registration, a published
-  extrinsic that is not exactly orthogonal and a shift search that is flat in
-  one direction. It cannot rank estimators that differ by millimetres.
+- The Livox reference is too coarse to rank the estimators (see its section).
 - At exactly zero background the bins past the ends of a table have a rate of
   zero and are skipped, while a bin holding only the first sliver of the
   support keeps a fixed share of the timing information however thin it is,

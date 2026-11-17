@@ -118,17 +118,27 @@ pixel records in 6000 or more of its 7000 cycles, the first photon fit sits at
 <img src="docs/real/precision.png" alt="spread over the first photon bound against photons per pixel, per estimator" width="620">
 
 The data do not give the cycle count. A pixel records at most once per cycle,
-so M = 7000 is the 99.9th percentile of the totals rounded up to a hundred.
-The even columns give M and the response. Each histogram of the odd columns is
-split at random into 4 groups, and a ratio sets the spread over them against
-the first photon bound for one group, so it describes a quarter of the counts.
+so the totals bound M from below. M = 7000 is the 99.9th percentile of the
+totals of the even columns rounded up to a multiple of 100, and the 4 even
+pixels above it are set aside. The even columns give M and the response. Each
+histogram of the odd columns is split at random into 4 groups, and each ratio
+divides the spread over the groups by the first photon bound for one group, so
+it describes a quarter of the counts.
 
 Both likelihood fits sit 1.28 to 1.40 times the bound in the two faintest
 classes, close to each other. That excess, and the 0.98 of the brightest class,
-point to the response, one shape for every flux. The Livox lidar recorded with
-the frame agrees with every estimator to 9 to 12 cm, a limit of calibration and
-registration, so it cannot rank estimators that differ by millimetres. Licence
-and citation of the derived files: [docs/real](docs/real/README.md).
+point to the response, one shape for every flux, and to M: run at M = 6900 and
+7100, both fits move by 3 to 5 percent in those two classes.
+
+The matched filter refuses a return nearer the start of the record than the
+reach of its template, about 40 bins, and most of the brightest pixels hold
+one. Against the Livox lidar recorded with the frame, the residuals of four
+estimators spread by 9.1 to 10.3 cm once each one's median is removed. Those
+of the fullest bin, the one estimator in the dataset's own conversion to
+range, spread by 12.1 cm around a median of 4.7 cm. Spreads of that size
+point at calibration and registration, and are too coarse to rank estimators
+that differ by millimetres. Licence and citation of the derived files:
+[docs/real](docs/real/README.md).
 
 | photons per pixel | bound per group | first photon | Coates then Poisson | matched on Coates |
 |---|---|---|---|---|
@@ -178,3 +188,5 @@ more photons than its stack buffer holds.
 ## Licence
 
 MIT, see [LICENSE](LICENSE).
+The files in [docs/real](docs/real/README.md), derived from SP-TransientBench,
+are CC BY-NC-SA 4.0, as the dataset is.

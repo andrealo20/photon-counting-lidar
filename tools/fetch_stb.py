@@ -133,8 +133,8 @@ def main() -> int:
     dest = fetch(a.sample, a.dest)
     print("\nLicence: CC BY-NC-SA 4.0 (non-commercial, share-alike, attribution)")
     print("Cite as:\n" + _citation(dest / "README.md"))
-    print("\nDo not commit these files: the licence forbids redistributing "
-          "them from this repository.")
+    print("\nDo not commit these files: the repository is MIT and keeps the raw "
+          "data out, about 100 MB per sample.")
     return 0
 
 

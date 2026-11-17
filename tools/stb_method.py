@@ -19,12 +19,12 @@ seen on it directly. Splitting its counts at random into K_GROUPS groups
 gives K_GROUPS histograms thinned with keep 1/K_GROUPS, and the spread of an
 estimator over them is its precision on one group, set against the first
 photon bound for that keep (precision). What is measured is the precision
-on a group, not on the whole histogram.
+on one group, which holds 1/K_GROUPS of the counts.
 
 Every number this module produces about a histogram (Coates, rates, analytic
-histograms, estimates, bounds) comes from the library. numpy does the
-bookkeeping, the alignment, the least squares fit, the splitting and the
-statistics.
+histograms, every estimate except the argmax, bounds) comes from the
+library. numpy does the argmax, the bookkeeping, the alignment, the least
+squares fit, the splitting and the statistics.
 """
 
 from __future__ import annotations
@@ -51,8 +51,7 @@ SMOOTH = 10.0 ** -2.25
 ESTIMATORS = ("argmax", "centroid", "matched_coates", "coates_poisson", "first_photon")
 K_GROUPS = 4
 # A group estimate further than this from the same estimator's estimate on
-# the whole histogram is not a noisy version of it but a different answer, so
-# it counts as a failure.
+# the whole histogram has found a different answer, and counts as a failure.
 FAIL_BINS = 5.0
 
 

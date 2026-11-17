@@ -15,5 +15,5 @@ PLAN-REVIEW-LOG.md
 .claude/
 .codex/
 
-# Third-party datasets (licence forbids redistribution here)
+# Third-party datasets stay out of this MIT repository, about 100 MB per sample
 /data/

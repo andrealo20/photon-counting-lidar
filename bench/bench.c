@@ -41,9 +41,10 @@ static plidar_scene scene(void)
     return sc;
 }
 
-/* A trapezoid, 100 ps flat and 30 ps ramps, so 130 ps wide at half height.
- * The support is four times that, which makes rejection cost about five
- * draws per photon, as it does for a measured pulse with its tails. */
+/* A trapezoid, 100 ps flat and 30 ps ramps, so 130 ps wide at half height
+ * and 130 ps of area under a peak of 1. The nodes span 520 ps, 4 times that,
+ * which makes rejection cost about 4 draws per photon, as it does for a
+ * measured pulse with its tails. */
 enum { TRAP_NODES = 53 };
 static double trap_work[3 * TRAP_NODES];
 

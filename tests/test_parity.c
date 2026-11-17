@@ -15,9 +15,10 @@
  * no test.
  *
  * For a tabulated response the Monte Carlo samples by rejection against the
- * interpolated density. That case therefore checks the integration of the
- * density into bins and the pile up, not an independent generative
- * construction as the EMG case does.
+ * interpolated density, so both paths start from the same density, and that
+ * case checks the integration of the density into bins and the pile up. The
+ * EMG case checks the density as well, since its Monte Carlo builds each
+ * arrival from a normal and an exponential variate.
  */
 #include <math.h>
 
