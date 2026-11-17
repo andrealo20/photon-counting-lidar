@@ -20,7 +20,10 @@
  *
  *   joint  all three are estimated from the same histogram, which is what
  *          plidar_est_mle actually does. Having to pay for the nuisance
- *          parameters can only widen the bound, never narrow it.
+ *          parameters can only widen the bound, never narrow it. At a
+ *          background of exactly zero the bound treats the background as
+ *          known, since the bins the return cannot reach pin it down, and
+ *          estimates the other two.
  *
  * The derivative with respect to t0 comes from plidar_irf_bin_dt0, which is
  * the difference of two density values by the fundamental theorem of
@@ -47,7 +50,7 @@ extern "C" {
 
 typedef struct {
     double var_tof_known; /**< s^2, signal and background known */
-    double var_tof_joint; /**< s^2, all three parameters estimated */
+    double var_tof_joint; /**< s^2, all three estimated, or the background known when it is 0 */
     double information;   /**< the (t0, t0) entry of the information matrix */
 } plidar_crb_result;
 
@@ -58,6 +61,17 @@ typedef struct {
 plidar_status_t plidar_crb(const plidar_scene *sc, double cycles,
                            double *scratch, size_t nbins,
                            plidar_crb_result *out);
+
+/**
+ * Bound of the first photon model, multinomial over the bins plus the
+ * category of cycles with no record, for a histogram thinned with keep q.
+ * @param cycles  laser pulses of the whole acquisition, M
+ * @param keep    probability a recorded count was kept, in (0, 1]
+ * @param scratch caller owned, 2*nbins doubles
+ */
+plidar_status_t plidar_crb_first_photon(const plidar_scene *sc, double cycles, double keep,
+                                        double *scratch, size_t nbins,
+                                        plidar_crb_result *out);
 
 /** Standard deviation in metres from a variance in seconds squared. */
 double plidar_crb_range_sigma(double var_tof);

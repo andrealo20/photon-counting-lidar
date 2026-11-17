@@ -1,6 +1,7 @@
 /**
  * @file estimate.h
- * @brief Three ways to read a distance out of an arrival time histogram.
+ * @brief Three ways to read a distance out of an arrival time histogram, the
+ * third under two models of the counts.
  *
  * They differ in how much of the forward model they use, and the whole point
  * of putting them side by side is that the difference is measurable.
@@ -18,13 +19,19 @@
  * no longer biases it. It is the optimal linear estimator when the noise is
  * additive and Gaussian. Here the noise is neither.
  *
- * **Maximum likelihood.** Counts are Poisson with mean A*g_i(t0) + B, so
- * maximise sum_i [ N_i log(A g_i + B) - (A g_i + B) ] over the time of
- * flight and over the signal and background levels at the same time. Search
- * in three stages: a matched filter for a starting point, then a coarse scan
- * of the whole period with the log matched statistic that the likelihood
- * reduces to at fixed amplitudes, then expectation maximisation on the two
- * amplitudes alternating with a golden section search on t0.
+ * **Maximum likelihood.** In plidar_est_mle counts are Poisson with mean
+ * A*g_i(t0) + B, so maximise sum_i [ N_i log(A g_i + B) - (A g_i + B) ] over
+ * the time of flight and over the signal and background levels at the same
+ * time. Search in three stages: a matched filter for a starting point, then a
+ * coarse scan of the whole period with the log matched statistic that the
+ * likelihood reduces to at fixed amplitudes, then expectation maximisation on
+ * the two amplitudes alternating with a golden section search on t0.
+ * plidar_est_mle_first_photon fits the first photon model instead, in which
+ * each cycle records at most one photon and the counts are multinomial over
+ * the bins and the cycles that recorded nothing. It estimates the same three
+ * parameters in the same three stages, its coarse scan using the weights of
+ * that model, and refits the amplitudes by Newton steps at every t0 the
+ * golden section tries.
  *
  * The coarse scan covers every candidate the template fits behind, rather
  * than a neighbourhood of the matched filter peak. Restricting it would be
@@ -34,26 +41,39 @@
  * and the error jumps from millimetres to metres. An estimator that is not
  * allowed to make that mistake cannot be shown making it.
  *
- * "Every candidate the template fits behind" is not quite the whole period.
- * A return within a template half width of either end has no room for the
- * window and is out of reach: with the response and bins used in this
- * repository that is the first and last 1.6 ns, or about half a metre at
- * each end of a fifteen metre range. It is a property of a finite record
- * rather than of the search.
+ * "Every candidate the template fits behind" is not quite the whole period:
+ * the candidates stop a template half width short of either end. The half
+ * width is 10 standard deviations of a parametric response: 31 bins of
+ * 50 ps, 1.55 ns or 23 cm of range, for the response of the simulated
+ * sweeps. For a table it is the longer of the two sides of the support,
+ * measured from the origin: 40 bins of 750 ps for the one fitted to the
+ * recorded frame, whose whole support spans 46. Only the matched filter is
+ * held to the candidates. It refuses a return nearer an end than that,
+ * since the edge of its search is all it could report. Both likelihood fits
+ * can reach such a return: their golden section moves t0 past the first or
+ * the last candidate, with the window held at that end of the record. A
+ * return far inside that zone can still leave them on a wrong t0.
  *
  * ## Pile up
  *
- * All three assume the histogram is undistorted. If the data were taken with
- * one record per cycle and the detection rate was not negligible, run
- * plidar_coates_invert first and pass the recovered rates multiplied by the
- * cycle count. Feeding a distorted histogram straight in produces a distance
- * that is short by a predictable amount, which is itself one of the figures
- * in this repository.
+ * The centroid, the matched filter and plidar_est_mle assume the histogram
+ * is undistorted. If the data were taken with one record per cycle and the
+ * detection rate was not negligible, run plidar_coates_invert first and pass
+ * the recovered rates multiplied by the cycle count. Feeding a distorted
+ * histogram straight in produces a distance that is short by a predictable
+ * amount, which is itself one of the figures in this repository.
+ *
+ * Once most cycles record, that pair still weighs the bins wrongly: the late
+ * bins are seen only by the few cycles still listening, and the Poisson fit
+ * weighs them as if all of them were. plidar_est_mle_first_photon fits the
+ * first photon model to the counts as recorded instead, so it needs no
+ * correction in front and weighs each bin by the cycles that could still
+ * record in it.
  *
  * ## Memory
  *
  * Nothing is allocated. Every routine that needs working space takes a
- * caller owned buffer of nbins doubles.
+ * caller owned buffer, sized in its own comment.
  */
 #ifndef PLIDAR_ESTIMATE_H
 #define PLIDAR_ESTIMATE_H
@@ -100,6 +120,10 @@ plidar_status_t plidar_est_centroid(const plidar_scene *tmpl, const double *coun
 
 /**
  * Peak of the cross correlation with the IRF, interpolated by parabola.
+ *
+ * A peak on the first or the last candidate gives PLIDAR_ERR_DOMAIN and no
+ * estimate: the return lies at or beyond the reach of the template.
+ *
  * @param scratch caller owned, nbins doubles
  */
 plidar_status_t plidar_est_matched(const plidar_scene *tmpl, const double *counts,
@@ -116,6 +140,24 @@ plidar_status_t plidar_est_matched(const plidar_scene *tmpl, const double *count
 plidar_status_t plidar_est_mle(const plidar_scene *tmpl, const double *counts,
                                double cycles, size_t nbins, double *scratch,
                                plidar_estimate *out);
+
+/**
+ * Joint maximum likelihood of the first photon model on the counts as
+ * recorded, with no pile up correction in front.
+ *
+ * loglik is the multinomial log likelihood, its log q terms included. Counts
+ * that are negative or not finite, or that add up to more than cycles, give
+ * PLIDAR_ERR_DOMAIN; counts that add up to zero give PLIDAR_ERR_NO_CONVERGE.
+ *
+ * @param cycles  laser pulses of the whole acquisition, M
+ * @param keep    probability a recorded count was kept, in (0, 1]: 1 for a
+ *                histogram as recorded, 1/K for one of K groups of a
+ *                multinomial split
+ * @param scratch caller owned, 4*nbins doubles
+ */
+plidar_status_t plidar_est_mle_first_photon(const plidar_scene *tmpl, const double *counts,
+                                            double cycles, double keep, size_t nbins,
+                                            double *scratch, plidar_estimate *out);
 
 #ifdef __cplusplus
 }

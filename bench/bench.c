@@ -3,6 +3,7 @@
  * paste it straight into the job summary, which is where the numbers in the
  * README come from.
  */
+#include <math.h>
 #include <stdio.h>
 #include <time.h>
 
@@ -40,6 +41,24 @@ static plidar_scene scene(void)
     return sc;
 }
 
+/* A trapezoid, 100 ps flat and 30 ps ramps, so 130 ps wide at half height
+ * and 130 ps of area under a peak of 1. The nodes span 520 ps, 4 times that,
+ * which makes rejection cost about 4 draws per photon, as it does for a
+ * measured pulse with its tails. */
+enum { TRAP_NODES = 53 };
+static double trap_work[3 * TRAP_NODES];
+
+static plidar_status_t trapezoid(plidar_irf *irf)
+{
+    double s[TRAP_NODES];
+
+    for (int k = 0; k < TRAP_NODES; k++) {
+        const double x = fabs(-260e-12 + (double)k * 10e-12);
+        s[k] = (x <= 50e-12) ? 1.0 : fmax((80e-12 - x) / 30e-12, 0.0);
+    }
+    return plidar_irf_init_table(irf, s, TRAP_NODES, -260e-12, 10e-12, trap_work);
+}
+
 int main(void)
 {
     plidar_scene sc = scene();
@@ -65,6 +84,17 @@ int main(void)
     t = seconds() - t;
     printf("| simulate | %llu cycles | %.1f | %.2f Mcycle/s |\n",
            (unsigned long long)cycles, t * 1e3, (double)cycles / t / 1e6);
+
+    {
+        plidar_scene tab = sc;
+        (void)trapezoid(&tab.irf);
+        plidar_rng_seed(&rng, 1u, 0u);
+        t = seconds();
+        (void)plidar_sim_mc(&tab, &det, cycles, &rng, hist_u, NB, NULL);
+        t = seconds() - t;
+        printf("| simulate, tabulated response | %llu cycles | %.1f | %.2f Mcycle/s |\n",
+               (unsigned long long)cycles, t * 1e3, (double)cycles / t / 1e6);
+    }
 
     t = seconds();
     for (int i = 0; i < 100; i++) {

@@ -3,7 +3,7 @@
 [![ci](https://github.com/andrealo20/photon-counting-lidar/actions/workflows/ci.yml/badge.svg)](https://github.com/andrealo20/photon-counting-lidar/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![language: C99](https://img.shields.io/badge/language-C99-00599C.svg)](https://en.wikipedia.org/wiki/C99)
-[![tests: 49 passing](https://img.shields.io/badge/tests-49%20passing-brightgreen.svg)](tests/)
+[![tests: 74 passing](https://img.shields.io/badge/tests-74%20passing-brightgreen.svg)](tests/)
 [![sanitizers: ASan + UBSan](https://img.shields.io/badge/sanitizers-ASan%20%2B%20UBSan-brightgreen.svg)](.github/workflows/ci.yml)
 [![no malloc](https://img.shields.io/badge/allocation-none-informational.svg)](#memory)
 
@@ -108,6 +108,51 @@ The residual is the tolerance of the search, not physics left over. The first
 row is the usual advice to stay under a few percent per pulse, and what it buys
 is a bias below a tenth of a millimetre.
 
+## Real data
+
+The estimators also ran on one frame of the public SP-TransientBench dataset,
+recorded by an Adaps ADS6311 with 256 by 192 pixels and 750 ps bins. Where a
+pixel records in 6000 or more of its 7000 cycles, the first photon fit sits at
+1.01 and 0.98 times its bound, while Coates then Poisson sits at 1.93 and 2.72.
+
+<img src="docs/real/precision.png" alt="spread over the first photon bound against photons per pixel, per estimator" width="620">
+
+The data do not give the cycle count. A pixel records at most once per cycle,
+so the totals bound M from below. M = 7000 is the 99.9th percentile of the
+totals of the even columns, rounded up to a multiple of 100. The 4 even pixels
+with a total of 7000 or more count in the percentile and are then set aside:
+with M exact, each would have recorded in every cycle, or more than once in
+some. The even columns give M and the response. Each histogram of the odd
+columns is split at random into 4 groups, and each ratio divides the spread
+over the groups by the first photon bound for one group, so it describes a
+quarter of the counts.
+
+Both likelihood fits sit 1.28 to 1.40 times the bound in the two faintest
+classes, close to each other. That excess, and the 0.98 of the brightest class,
+point to the response, one shape for every flux. M moves the two faintest
+classes too: run at M = 6900 and 7100, both fits move by 3 to 5 percent there.
+
+Against the Livox lidar recorded with the frame, the residuals of four
+estimators spread by 9.1 to 10.3 cm once each one's median is removed. Those
+of the fullest bin, the one estimator in the dataset's own conversion to
+range, spread by 12.1 cm around a median of 4.7 cm. Spreads of that size
+point at calibration and registration, and are too coarse to rank estimators
+that differ by millimetres. Licence and citation of the derived files:
+[docs/real](docs/real/README.md).
+
+| photons per pixel | bound per group | first photon | Coates then Poisson | matched on Coates |
+|---|---|---|---|---|
+| 1500-3000 | 12.50 mm | 1.28x | 1.29x | 1.64x (0.5% lost) |
+| 3000-4500 | 9.53 mm | 1.36x | 1.40x | 1.78x (0.5% lost) |
+| 4500-6000 | 8.01 mm | 1.14x | 1.48x | 1.88x (0.4% lost) |
+| 6000-6500 | 7.66 mm | 1.01x | 1.93x | 2.40x (1.4% lost) |
+| 6500-7000 | 6.88 mm | 0.98x | 2.72x (1.9% lost) | 2.71x (74.1% lost) |
+
+The matched filter refuses a return nearer the start of the record than the
+half width of its template, 40 bins, and the brightest pixels see the nearest
+objects. Its ratio in the brightest class covers 1283 of the 4870 pixels, whose
+median bound is 7.34 mm against the 6.88 mm the bound column shows.
+
 ## Build
 
 ```bash
@@ -136,9 +181,9 @@ more photons than its stack buffer holds.
 
 ## What it does not do
 
-- Everything is simulated. The model is cross checked against itself and
-  against closed forms, never against a recorded measurement. Comparing it with
-  a public time correlated single photon counting trace is the next step.
+- One sensor and one scene. The response is fitted on the same frame it is
+  measured on, from the other half of the pixels, and absolute distance is
+  left to the offset map that comes with the dataset.
 - One surface per pixel. Fog or foliage puts two returns in one histogram,
   which first makes it a question of how many surfaces there are.
 - Returns past the unambiguous range are dropped rather than folded back.
@@ -148,3 +193,5 @@ more photons than its stack buffer holds.
 ## Licence
 
 MIT, see [LICENSE](LICENSE).
+The files in [docs/real](docs/real/README.md), derived from SP-TransientBench,
+are CC BY-NC-SA 4.0, as the dataset is.

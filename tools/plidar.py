@@ -24,6 +24,7 @@ C_LIGHT = 299792458.0
 
 IRF_GAUSSIAN = 0
 IRF_EMG = 1
+IRF_TABLE = 2
 
 SIM_IDEAL = 0
 SIM_FIRST_PHOTON = 1
@@ -49,7 +50,9 @@ def _check(code: int, where: str) -> None:
 
 
 class Irf(ctypes.Structure):
-    _fields_ = [("kind", c_int), ("sigma", c_double), ("tau", c_double)]
+    _fields_ = [("kind", c_int), ("sigma", c_double), ("tau", c_double),
+                ("table", POINTER(c_double)), ("n", c_size_t),
+                ("t_first", c_double), ("dt", c_double)]
 
 
 class Scene(ctypes.Structure):
@@ -213,6 +216,25 @@ class Plidar:
         ]
         f.plidar_crb.restype = c_int
 
+        f.plidar_irf_init_table.argtypes = [
+            POINTER(Irf), _D, c_size_t, c_double, c_double, _D
+        ]
+        f.plidar_irf_init_table.restype = c_int
+
+        f.plidar_irf_variance.argtypes = [POINTER(Irf)]
+        f.plidar_irf_variance.restype = c_double
+
+        f.plidar_crb_first_photon.argtypes = [
+            POINTER(Scene), c_double, c_double, _D, c_size_t, POINTER(CrbResult)
+        ]
+        f.plidar_crb_first_photon.restype = c_int
+
+        f.plidar_est_mle_first_photon.argtypes = [
+            POINTER(Scene), _D, c_double, c_double, c_size_t, _D,
+            POINTER(Estimate)
+        ]
+        f.plidar_est_mle_first_photon.restype = c_int
+
         f.plidar_tof_to_range.argtypes = [c_double]
         f.plidar_tof_to_range.restype = c_double
 
@@ -226,6 +248,29 @@ class Plidar:
     def emg(sigma_s: float, tau_s: float) -> Irf:
         return Irf(IRF_EMG, sigma_s, tau_s)
 
+    def table(self, samples, t_first: float, dt: float) -> Irf:
+        """Response given by samples on a uniform grid starting at t_first.
+
+        The C side keeps a pointer to a work buffer of 3n doubles, so the
+        buffer is stored on the returned Irf as _keep. ctypes copies the bytes
+        of a nested structure but not Python attributes, so a scene built with
+        this Irf must come from Plidar.scene, which carries _keep over.
+        Assigning scene.irf by hand loses the reference.
+        """
+        import numpy as np
+
+        n = samples.size
+        work = np.zeros(3 * n, dtype=np.float64)
+        irf = Irf()
+        _check(
+            self.lib.plidar_irf_init_table(
+                byref(irf), _buffer(samples, np.float64, "samples", 2),
+                c_size_t(n), c_double(t_first), c_double(dt),
+                work.ctypes.data_as(_D)),
+            "irf_init_table")
+        irf._keep = work
+        return irf
+
     @staticmethod
     def scene(
         *,
@@ -238,8 +283,10 @@ class Plidar:
         irf: Irf,
     ) -> Scene:
         nbins = int(round(period / bin_width))
-        return Scene(period, bin_width, nbins, t0, signal, background,
-                     efficiency, irf)
+        sc = Scene(period, bin_width, nbins, t0, signal, background,
+                   efficiency, irf)
+        sc._keep = getattr(irf, "_keep", None)  # the table buffer must outlive irf
+        return sc
 
     @staticmethod
     def detector(
@@ -262,6 +309,11 @@ class Plidar:
 
     def check(self, scene: Scene) -> None:
         _check(self.lib.plidar_scene_check(byref(scene)), "scene_check")
+
+    def variance(self, irf: Irf) -> float:
+        """Variance of the response in s^2; a table's is integrated cell by
+        cell in closed form."""
+        return self.lib.plidar_irf_variance(byref(irf))
 
     def rate(self, scene: Scene, t0: float):
         import numpy as np
@@ -374,6 +426,33 @@ class Plidar:
                 c_size_t(scene.nbins), byref(out)),
             "crb")
         return out
+
+    def crb_first_photon(self, scene: Scene, cycles: float, keep: float,
+                         scratch) -> CrbResult:
+        import numpy as np
+
+        out = CrbResult()
+        _check(
+            self.lib.plidar_crb_first_photon(
+                byref(scene), c_double(cycles), c_double(keep),
+                _buffer(scratch, np.float64, "scratch", 2 * scene.nbins),
+                c_size_t(scene.nbins), byref(out)),
+            "crb_first_photon")
+        return out
+
+    def mle_first_photon(self, scene: Scene, counts, cycles: float,
+                         keep: float, scratch) -> Estimate:
+        import numpy as np
+
+        est = Estimate()
+        _check(
+            self.lib.plidar_est_mle_first_photon(
+                byref(scene), _buffer(counts, np.float64, "counts"),
+                c_double(cycles), c_double(keep), c_size_t(counts.size),
+                _buffer(scratch, np.float64, "scratch", 4 * counts.size),
+                byref(est)),
+            "est_mle_first_photon")
+        return est
 
 
 def tof_to_range(tof_s: float) -> float:

@@ -96,8 +96,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # numpy stays on the series the synthetic check was validated on: the
+      # check draws from numpy distributions whose streams may change between
+      # releases, and its bands are fixed.
       - name: Install
-        run: python -m pip install --quiet numpy matplotlib
+        run: python -m pip install --quiet "numpy==2.5.*" matplotlib
 
       - name: Build the shared object
         run: |
@@ -111,6 +114,32 @@ jobs:
       - name: Check the ctypes layouts against the headers
         working-directory: tools
         run: python check_bindings.py
+
+      - name: Test the first photon and tabulated response bindings
+        working-directory: tools
+        run: python test_plidar.py
+
+      # Offline only: the downloader itself needs the network and is not run.
+      - name: Test the dataset downloader
+        working-directory: tools
+        run: python test_fetch_stb.py
+
+      - name: Test the cycle count and response estimation
+        working-directory: tools
+        run: python test_stb_method.py
+
+      # The readers of the recorded sample, on inputs worked out by hand: the
+      # sample itself is never in CI.
+      - name: Test the readers of the recorded data
+        working-directory: tools
+        run: python test_real_stb.py
+
+      # The method of the recorded data, run on simulated pixels whose cycle
+      # count and response are known. The bands of its checks were fixed
+      # before any recorded data went through it.
+      - name: Check the method on synthetic data
+        working-directory: tools
+        run: python real_stb.py --synthetic
 
       # A short sweep rather than the published one. It proves the binding and
       # the whole pipeline still work; reproducing the figure takes a couple
