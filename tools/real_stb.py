@@ -241,8 +241,10 @@ def to_sensor(points: np.ndarray, extrinsic: np.ndarray) -> np.ndarray:
 
     The published 3 by 4 matrix [R | t] takes the sensor to the Livox, P =
     R S + t, so S = R^-1 (P - t). R is a reflection, det close to -1, but two
-    of its rows fall short of unit length by 0.08 percent: its transpose is
-    not its inverse and would shorten two coordinates by 0.15 percent.
+    of its rows and two of its columns fall short of unit length by 0.08
+    percent. Its transpose is then not its inverse: R^T R = diag(1, 0.99848,
+    0.99848), and the transpose would shorten two coordinates by 0.15
+    percent.
     """
     return np.linalg.solve(extrinsic[:, :3], (points - extrinsic[:, 3]).T).T
 
