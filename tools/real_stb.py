@@ -175,9 +175,16 @@ def synthetic(seed: int) -> int:
           f"{S.M_GRID[np.argmin(curve)]}, a diagnostic); response fitted to {single} "
           f"single return pixels, L1 {l1:.4f} from the true one")
 
+    # The odd pixels are filtered as the recorded ones are: a total under M
+    # and a single return on the whole histogram after Coates.
     tmpl = S.template_scene(lib.table(*response), NBINS, BIN_WIDTH)
-    rows, excluded = S.precision(lib, tmpl, hists[1::2], totals[1::2], cycles,
-                                 S.K_GROUPS, rng)
+    odd = np.arange(1, PIXELS, 2)
+    odd = odd[totals[odd] < cycles]
+    kept = single_returns(lib, hists[odd], cycles)[2]
+    print(f"{odd.size - int(kept.sum())} of the {odd.size} odd pixels under M are not "
+          "a single return")
+    odd = odd[kept]
+    rows, excluded = S.precision(lib, tmpl, hists[odd], totals[odd], cycles, S.K_GROUPS, rng)
     print_table(rows, excluded)
 
     picked = [p for p in range(1, PIXELS, 2) if totals[p] < cycles][:INDEPENDENT]
