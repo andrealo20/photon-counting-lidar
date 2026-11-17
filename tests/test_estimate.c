@@ -228,7 +228,7 @@ static void test_rejects_bad_arguments(void)
 
 /* The first photon log likelihood from its definition, at the parameters of
  * sc: each kept count is a cycle that recorded in its bin, q P_i, and every
- * other cycle left no kept record, 1 - q (1 - P_0). */
+ * other cycle left no kept record, 1 - q (1 - P_none). */
 static double first_photon_loglik(const plidar_scene *sc, const double *counts,
                                   double cycles, double keep)
 {

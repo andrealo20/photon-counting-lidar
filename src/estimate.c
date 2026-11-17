@@ -474,25 +474,25 @@ plidar_status_t plidar_est_mle(const plidar_scene *tmpl, const double *counts,
 
 /*
  * The first photon model. With mu_i = a g_i(t0) + b photons per cycle in bin
- * i and S_i the rate summed over the bins before i, a cycle records in bin i
- * with probability P_i = exp(-S_i) (1 - exp(-mu_i)) and records nothing with
- * probability exp(-S_n). Counts kept with probability q are multinomial over
- * the bins and the n_0 = M - N cycles left without a kept record, N being
- * the total, so
+ * i and Lambda_i the rate summed over the bins before i, a cycle records in
+ * bin i with probability P_i = exp(-Lambda_i) (1 - exp(-mu_i)) and records
+ * nothing with probability P_none = exp(-Lambda_n). Counts kept with
+ * probability q are multinomial over the bins and the n_none = M - N cycles
+ * left without a kept record, N being the total, so
  *
- *     L = N log q - sum_i n_i S_i + sum_i n_i log(1 - exp(-mu_i))
- *         + n_0 log(1 - q + q exp(-S_n))
+ *     L = N log q - sum_i n_i Lambda_i + sum_i n_i log(1 - exp(-mu_i))
+ *         + n_none log(1 - q + q P_none)
  *
- * Outside the window g is zero, which splits sum_i n_i S_i in two: b times
- * sum_i i n_i, one number for the whole histogram, and a times the template
- * mass ahead of each count, which is the mass before its bin for a count in
- * the window and all of it for a count after the window. Counts outside the
- * window then enter through prefix sums only, and every evaluation is one
- * pass over the window, as in the Poisson fit.
+ * Outside the window g is zero, which splits sum_i n_i Lambda_i in two: b
+ * times sum_i i n_i, one number for the whole histogram, and a times the
+ * template mass ahead of each count, which is the mass before its bin for a
+ * count in the window and all of it for a count after the window. Counts
+ * outside the window then enter through prefix sums only, and every
+ * evaluation is one pass over the window, as in the Poisson fit.
  *
- * A bin with no counts adds nothing but its share of S, so its logarithm is
- * not taken and b = 0 stays finite. The empty category is skipped the same
- * way when every cycle recorded.
+ * A bin with no counts adds nothing but its share of Lambda, so its
+ * logarithm is not taken and b = 0 stays finite. The empty category is
+ * skipped the same way when every cycle recorded.
  */
 typedef struct {
     const double *counts;
@@ -501,7 +501,7 @@ typedef struct {
     size_t width;
     double base;   /* N log q */
     double moment; /* sum of i n_i */
-    double none;   /* n_0 */
+    double none;   /* n_none */
     double keep;   /* q */
 } plidar_fp_data;
 
@@ -641,9 +641,9 @@ static void fp_direction(const plidar_fp_slope *s, double a, double b, double *d
  * below starts it, it takes one to four steps.
  *
  * Everything in L is concave in (a, b) except the empty category, which with
- * q < 1 is convex in S_n. Where that makes the Hessian indefinite the term is
- * left out of the curvature, which leaves the curvature of a concave function
- * and a direction that still climbs.
+ * q < 1 is convex in Lambda_n. Where that makes the Hessian indefinite the
+ * term is left out of the curvature, which leaves the curvature of a concave
+ * function and a direction that still climbs.
  *
  * b = 0 is a legitimate answer, so b is not fitted through its logarithm. A
  * step that would take b below zero is cut short to land on zero, and the
