@@ -3,8 +3,10 @@ the first photon bound, with the cycle count and the response read out of
 the histograms themselves.
 
 The pixels are split in two. The even ones calibrate the method: the cycle
-count M is where the flux classes agree on one shape, and the response is
-fitted to the even pixels that hold one return. The odd ones measure it:
+count M is the ceiling of their totals (stb_method.cycles_from_totals), and
+the response is fitted to the even pixels that hold one return. The M at
+which their flux classes agree on one shape after Coates is printed next
+to it as a diagnostic. The odd ones measure the method:
 each histogram is split into groups, every estimator runs on every group,
 and the spread over the groups is set against the first photon bound for
 one group (stb_method.precision).
@@ -109,8 +111,10 @@ def single_returns(lib: Plidar, hists: np.ndarray, cycles: float):
 def calibrate(lib: Plidar, hists: np.ndarray, totals: np.ndarray, bin_width: float):
     """M and the response from the calibration pixels, as (M, the collapse
     curve over M_GRID, the response as fit_response returns it, the number
-    of single return pixels it was fitted to)."""
-    cycles, curve = S.estimate_cycles(lib, hists, totals)
+    of single return pixels it was fitted to). M is the ceiling of the
+    totals; the collapse curve is a diagnostic."""
+    cycles = S.cycles_from_totals(totals)
+    curve = S.estimate_cycles(lib, hists, totals)[1]
     mu, edges, single = single_returns(lib, hists, cycles)
     return cycles, curve, S.fit_response(mu[single], edges[single], bin_width), int(single.sum())
 
@@ -165,10 +169,11 @@ def synthetic(seed: int) -> int:
 
     # Even pixels calibrate and odd pixels measure, as the columns of the
     # recorded data. The truth is read only to compare.
-    cycles, _, response, single = calibrate(lib, hists[0::2], totals[0::2], BIN_WIDTH)
+    cycles, curve, response, single = calibrate(lib, hists[0::2], totals[0::2], BIN_WIDTH)
     l1 = S.l1_distance(response, true)
-    print(f"M {cycles:.0f} (true {CYCLES}); response fitted to {single} single return "
-          f"pixels, L1 {l1:.4f} from the true one")
+    print(f"M {cycles:.0f} from the totals (true {CYCLES}; collapse minimum "
+          f"{S.M_GRID[np.argmin(curve)]}, a diagnostic); response fitted to {single} "
+          f"single return pixels, L1 {l1:.4f} from the true one")
 
     tmpl = S.template_scene(lib.table(*response), NBINS, BIN_WIDTH)
     rows, excluded = S.precision(lib, tmpl, hists[1::2], totals[1::2], cycles,
@@ -400,11 +405,15 @@ def precision_figure(rows: list[dict], out: Path) -> None:
     print(f"wrote {out}")
 
 
-def print_collapse(cycles: float, curve: np.ndarray) -> None:
-    print("distance between the class shapes after Coates, against M:")
+def print_cycles(cycles: float, totals: np.ndarray, curve: np.ndarray) -> None:
+    """M from the totals, after the collapse curve and its minimum, which
+    are a diagnostic."""
+    low = S.M_GRID[np.argmin(curve)]
+    print("distance between the class shapes after Coates, against M (a diagnostic):")
     for m, d in zip(S.M_GRID, curve):
-        print(f"  {m:5d}  {d:.4f}" + ("  <- M" if m == cycles else ""))
-    print(f"M {cycles:.0f}")
+        print(f"  {m:5d}  {d:.4f}" + ("  <- collapse minimum" if m == low else ""))
+    print(f"M {cycles:.0f}, from the totals of the valid even pixels (99.9th percentile "
+          f"{np.percentile(totals, 99.9):.0f}); collapse minimum {low}, a diagnostic")
 
 
 def real(root: Path, sample: int, out: Path, cycles_only: bool, seed: int) -> int:
@@ -426,13 +435,14 @@ def real(root: Path, sample: int, out: Path, cycles_only: bool, seed: int) -> in
         print("even pixels by search class: " + ", ".join(
             f"{lo}-{hi} {int((cal & (totals >= lo) & (totals < hi)).sum())}"
             for lo, hi in S.SEARCH_CLASSES))
-        print_collapse(*S.estimate_cycles(lib, hist[cal], totals[cal]))
+        print_cycles(S.cycles_from_totals(totals[cal]), totals[cal],
+                     S.estimate_cycles(lib, hist[cal], totals[cal])[1])
         print(f"ran in {time.perf_counter() - start:.0f} s")
         return 0
 
     # Even columns: M and the response.
     cycles, curve, response, fitted = calibrate(lib, hist[cal], totals[cal], BIN_WIDTH)
-    print_collapse(cycles, curve)
+    print_cycles(cycles, totals[cal], curve)
     fwhm, rise, tail = response_shape(response)
     print(f"response fitted to {fitted} even single return pixels: width at half height "
           f"{fwhm:.2f} bins ({fwhm * BIN_WIDTH * 1e9:.2f} ns), 10 to 90 percent rise "

@@ -20,7 +20,7 @@ python tools/real_stb.py --data DIR --sample 1
 
 The even columns of the sensor give the cycle count M, the response and the shift of the Livox projection, so `collapse.csv` and `shapes.png` come from them. `precision.csv`, `livox.csv` and `precision.png` are measured on the odd columns.
 
-- `collapse.csv`: for every M tried, the mean L1 distance between the shapes of the flux classes after Coates. The run uses the M at the minimum.
+- `collapse.csv`: for every M tried, the mean L1 distance between the shapes of the flux classes after Coates. It is a diagnostic: the run takes M from the ceiling of the totals, the smallest multiple of 100 at or above their 99.9th percentile, because no pixel can record more photons than there were cycles, while where the shapes agree depends on the scene.
 - `precision.csv`: for every flux class and estimator, `ratio` is the spread over 4 groups of each pixel against the first photon bound for one group, `bound_mm` the median of that bound as a distance, `groups` and `failures` the groups tried and lost, and `mean_photons` the mean recorded photons of the class.
 - `livox.csv`: residuals against the Livox points on pixels with a compact reference. Only the fullest bin uses the dataset's own conversion to range, so only its `median_cm` says something about the offset map. The other estimators place their origin on the rising edge, a constant away from that conversion, so their median is removed and reads 0. `spread_cm` is 1.4826 times the median absolute deviation from the median and `within5_pct` the share of pixels within 5 cm of it.
 - `shapes.png`: the mean return of each flux class, as recorded and after Coates with M.

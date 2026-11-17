@@ -5,11 +5,14 @@ A pixel of the sensor records at most one photon per laser cycle, and the
 number of cycles M is not in the data. Coates undoes that pile up only with
 the right M. Too large an M under-corrects and too small an M over-corrects,
 and either way the corrected shape of a return still depends on how bright
-the pixel is. So M is taken as the value at which pixels of
-different flux agree on one shape (estimate_cycles). With M known, the
-corrected rates of pixels that hold one return are aligned on their rising
-edges and fitted with a piecewise linear density, which becomes the table
-the library uses for the response (fit_response).
+the pixel is. No pixel can record more photons than there were cycles, so M
+is read from the ceiling of the totals (cycles_from_totals). The value at
+which pixels of different flux agree on one shape after Coates
+(estimate_cycles) depends on which pixels the scene holds, and is kept as a
+diagnostic. With M known, the corrected rates of pixels that hold one
+return are aligned on their rising edges and fitted with a piecewise linear
+density, which becomes the table the library uses for the response
+(fit_response).
 
 A recorded pixel is one acquisition, so the spread of an estimator cannot be
 seen on it directly. Splitting its counts at random into K_GROUPS groups
@@ -137,10 +140,27 @@ def shape_distance(shapes: np.ndarray) -> float:
     return float(np.abs(s - s.mean(axis=0)).sum(axis=1).mean())
 
 
+def cycles_from_totals(totals) -> float:
+    """M as the smallest multiple of 100 at or above the 99.9th percentile
+    of the totals.
+
+    A pixel records at most one photon per cycle, so no total can exceed M
+    and the ceiling of the totals bounds M from below. On a sensor whose
+    brightest pixels detect in nearly every cycle the totals pile up just
+    under it. The ceiling measures the instrument, while the shape collapse
+    of estimate_cycles moves with the pixels a scene holds. The percentile
+    leaves out the rare pixel far above the rest: one reaches 8424 in
+    sample 1.
+    """
+    return float(np.ceil(np.percentile(totals, 99.9) / 100.0) * 100.0)
+
+
 def estimate_cycles(lib: Plidar, hist: np.ndarray, totals: np.ndarray,
                     grid=M_GRID, classes=SEARCH_CLASSES) -> tuple[float, np.ndarray]:
     """The M of the grid at which the Coates corrected class shapes are
-    closest to each other, and the distance at every M of the grid.
+    closest to each other, and the distance at every M of the grid. A
+    diagnostic next to cycles_from_totals: where the classes agree depends on
+    the scene.
 
     Only pixels with a total under the top of the classes enter, 6400 for
     SEARCH_CLASSES. Every one of them then has cycles left at the smallest

@@ -63,6 +63,18 @@ def test_estimate_cycles_finds_the_true_count():
     assert curve.min() < 0.5 * min(curve[0], curve[-1]), curve
 
 
+def test_cycles_from_totals_is_the_next_hundred_over_the_ceiling():
+    assert S.cycles_from_totals(np.full(10, 6945)) == 7000.0
+    assert S.cycles_from_totals(np.full(10, 6900)) == 6900.0  # a hundred stays itself
+    # One pixel far above the rest, like the 8424 of sample 1, moves nothing.
+    assert S.cycles_from_totals(np.append(np.full(9999, 6800), 8424)) == 6800.0
+    rng = np.random.default_rng(9)
+    for _ in range(200):
+        t = rng.integers(1500, 7000, rng.integers(10, 5000))
+        m, p = S.cycles_from_totals(t), np.percentile(t, 99.9)
+        assert m % 100 == 0 and p <= m < p + 100, (m, p)
+
+
 def test_fit_response_recovers_the_density():
     lib = Plidar()
     true = S.flat_top(BIN)
