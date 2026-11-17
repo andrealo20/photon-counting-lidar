@@ -3,7 +3,7 @@
 [![ci](https://github.com/andrealo20/photon-counting-lidar/actions/workflows/ci.yml/badge.svg)](https://github.com/andrealo20/photon-counting-lidar/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![language: C99](https://img.shields.io/badge/language-C99-00599C.svg)](https://en.wikipedia.org/wiki/C99)
-[![tests: 49 passing](https://img.shields.io/badge/tests-49%20passing-brightgreen.svg)](tests/)
+[![tests: 73 passing](https://img.shields.io/badge/tests-73%20passing-brightgreen.svg)](tests/)
 [![sanitizers: ASan + UBSan](https://img.shields.io/badge/sanitizers-ASan%20%2B%20UBSan-brightgreen.svg)](.github/workflows/ci.yml)
 [![no malloc](https://img.shields.io/badge/allocation-none-informational.svg)](#memory)
 
@@ -108,6 +108,36 @@ The residual is the tolerance of the search, not physics left over. The first
 row is the usual advice to stay under a few percent per pulse, and what it buys
 is a bias below a tenth of a millimetre.
 
+## Real data
+
+The estimators also ran on one frame of the public SP-TransientBench dataset,
+recorded by an Adaps ADS6311 with 256 by 192 pixels and 750 ps bins. Where a
+pixel records in 6000 or more of its 7000 cycles, the first photon fit sits at
+1.01 and 0.98 times its bound, while Coates then Poisson sits at 1.93 and 2.72.
+
+<img src="docs/real/precision.png" alt="spread over the first photon bound against photons per pixel, per estimator" width="620">
+
+The data do not give the cycle count. A pixel records at most once per cycle,
+so M = 7000 is the 99.9th percentile of the totals rounded up to a hundred.
+The even columns give M and the response. Each histogram of the odd columns is
+split at random into 4 groups, and a ratio sets the spread over them against
+the first photon bound for one group, so it describes a quarter of the counts.
+
+Both likelihood fits sit 1.28 to 1.40 times the bound in the two faintest
+classes, close to each other. That excess, and the 0.98 of the brightest class,
+point to the response, one shape for every flux. The Livox lidar recorded with
+the frame agrees with every estimator to 9 to 12 cm, a limit of calibration and
+registration, so it cannot rank estimators that differ by millimetres. Licence
+and citation of the derived files: [docs/real](docs/real/README.md).
+
+| photons per pixel | bound per group | first photon | Coates then Poisson | matched on Coates |
+|---|---|---|---|---|
+| 1500-3000 | 12.50 mm | 1.28x | 1.29x | 1.64x |
+| 3000-4500 | 9.53 mm | 1.36x | 1.40x | 1.78x |
+| 4500-6000 | 8.01 mm | 1.14x | 1.48x | 1.88x |
+| 6000-6500 | 7.66 mm | 1.01x | 1.93x | 2.43x |
+| 6500-7000 | 6.88 mm | 0.98x | 2.72x (1.9% lost) | 1.67x (2.0% lost) |
+
 ## Build
 
 ```bash
@@ -136,9 +166,9 @@ more photons than its stack buffer holds.
 
 ## What it does not do
 
-- Everything is simulated. The model is cross checked against itself and
-  against closed forms, never against a recorded measurement. Comparing it with
-  a public time correlated single photon counting trace is the next step.
+- One sensor and one scene. The response is fitted on the same frame it is
+  measured on, from the other half of the pixels, and absolute distance is
+  left to the offset map that comes with the dataset.
 - One surface per pixel. Fog or foliage puts two returns in one histogram,
   which first makes it a question of how many surfaces there are.
 - Returns past the unambiguous range are dropped rather than folded back.
