@@ -170,8 +170,10 @@ def check_real_table(text: str, problems: list[str]) -> int:
             fail(problems, f"README quotes {name} photons, csv has no such class")
             continue
 
-        # The bound belongs to the pixel, but each estimator keeps a slightly
-        # different set of pixels, so the column quotes the first photon one.
+        # The bound belongs to the pixel, and its median is over the pixels an
+        # estimator keeps. The matched filter keeps far fewer in the brightest
+        # class, as the README says under the table, so the column quotes the
+        # first photon one.
         bound, _ = value_and_lost(parts[1])
         actual = float(matching["first_photon"]["bound_mm"])
         if not abs(bound - actual) <= TOL_MM:

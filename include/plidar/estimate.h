@@ -41,14 +41,18 @@
  * and the error jumps from millimetres to metres. An estimator that is not
  * allowed to make that mistake cannot be shown making it.
  *
- * "Every candidate the template fits behind" is not quite the whole period.
- * A return within a template half width of either end has no room for the
- * window and is out of reach. The half width is 10 standard deviations of a
- * parametric response and the whole support of a table: 31 bins of 50 ps,
- * 1.55 ns or 23 cm of range, for the response of the simulated sweeps, and
- * 40 bins of 750 ps for the one fitted to the recorded frame. Any search over
- * a finite record has such a limit. The matched filter refuses a return
- * there, since the edge of its search is all it could report.
+ * "Every candidate the template fits behind" is not quite the whole period:
+ * the candidates stop a template half width short of either end. The half
+ * width is 10 standard deviations of a parametric response: 31 bins of
+ * 50 ps, 1.55 ns or 23 cm of range, for the response of the simulated
+ * sweeps. For a table it is the longer of the two sides of the support,
+ * measured from the origin: 40 bins of 750 ps for the one fitted to the
+ * recorded frame, whose whole support spans 46. Only the matched filter is
+ * held to the candidates. It refuses a return nearer an end than that,
+ * since the edge of its search is all it could report. Both likelihood fits
+ * can reach such a return: their golden section moves t0 past the first or
+ * the last candidate, with the window held at that end of the record. A
+ * return far inside that zone can still leave them on a wrong t0.
  *
  * ## Pile up
  *

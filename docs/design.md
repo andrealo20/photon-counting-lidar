@@ -245,11 +245,13 @@ a certain photon budget a background fluctuation carries a higher likelihood
 than the return does, and the estimate lands metres away. An estimator that is
 not allowed to make that mistake cannot be shown making it.
 
-It is not the whole period, and the README says so as well. Candidates run from
-bin h to bin nbins-h-1, so a return within a template half width of either end
-is unreachable: 1.575 ns at each end here, about half a metre of the fifteen
-the period allows. That is a property of a finite record rather than of the
-search, but it is a limit and not a rounding.
+It is not the whole period. Candidates run from bin h to bin nbins-h-1, a
+template half width short of either end: 31 bins here, 1.55 ns or 23 cm of the
+fifteen metres the period allows. Stage three can still reach a return nearer
+an end, since its golden section moves t0 past the first or the last
+candidate, with the window held at that end of the record. A return far inside
+that zone can leave it on a wrong t0. The matched filter has no stage three
+and refuses a peak on the first or the last candidate.
 
 ### Cost
 
@@ -261,9 +263,10 @@ over two thousand bins takes around two hundred microseconds.
 
 Truncating the template puts a small amount of signal mass outside the window,
 where the model treats it as background. For the response and bins used here
-the half width is 31 bins, or 1.575 ns, and the mass beyond it is 1.4e-5 on the
-tail side and 6e-154 on the other. Both are well under the statistical error at
-any photon budget the bound allows.
+the half width is 31 bins, or 1.55 ns, and with t0 at the centre of its bin the
+window ends half a bin further, 1.575 ns either side. The mass beyond is 1.4e-5
+on the tail side and 6e-154 on the other. Both are well under the statistical
+error at any photon budget the bound allows.
 
 ## 6. The bound
 
@@ -527,14 +530,14 @@ So M is now the ceiling of the totals: the smallest multiple of 100 at or
 above the 99.9th percentile of the totals of the valid even pixels. No pixel
 can record more photons than there were cycles, so the totals bound M from
 below, and on a sensor whose brightest pixels record in nearly every cycle
-they crowd up just under it. The percentile keeps the few pixels above the
-rest from setting M: 4 even pixels hold 7060 to 7835 counts, more than one
-record per cycle allows. Pixels at or above M are set aside, those 4 and 3
-odd ones, the highest at 8424. Both samples give 7000, from 99.9th
-percentiles of 6938 and 6951. The change came after the check on sample 2
-fired and after a first run on sample 1, and the bands of the synthetic check
-stayed as they were. The collapse stays as a diagnostic: every run prints its
-curve, and `docs/real/collapse.csv` holds the one of sample 1.
+they crowd up just under it. The percentile keeps the few highest totals from
+setting M. The pixels at or above M are set aside, 4 even and 3 odd ones in
+sample 1: with M exact, each would have recorded in every cycle, or more than
+once in some. Both samples give 7000, from 99.9th percentiles of 6938 and
+6951. The change came after the check on sample 2 fired and after a first run
+on sample 1, and the bands of the synthetic check stayed as they were. The
+collapse stays as a diagnostic: every run prints its curve, and
+`docs/real/collapse.csv` holds the one of sample 1.
 
 The ceiling falls short when no pixel comes near saturation. The synthetic
 check shows it: its flux tops out at 97.3 percent of cycles detected, and the
@@ -617,12 +620,12 @@ Poisson at 1.9 to 2.7 times it, as in the Monte Carlo test; the README gives
 every class. The centroid sits between 1.010 and 1.517 times the bound, and
 the fullest bin, which reads whole bins, between 5.611 and 11.016.
 
-The matched filter on Coates refuses the whole histogram of 3695 odd pixels,
-3585 of them in the brightest class. Their returns sit 35 to 41 bins from the
-start of the record, at or beyond the reach of a template that spans 40 bins
-either side of a candidate, the length of the response's tail (section 5).
-That takes 73.6 percent of the brightest class's groups, of the 74.1 percent
-lost, and its ratio of 2.706 comes from the 1283 pixels left.
+The matched filter on Coates keeps 16110 odd pixels against 19808 for the
+first photon fit, 3698 fewer, and 3587 of those are in the brightest class,
+where it keeps 1283 of 4870. It refuses a return nearer the start of the record
+than the half width of its template, 40 bins (section 5), and the brightest
+pixels see the nearest objects. Its ratio of 2.706 in that class, with 74.1
+percent of the groups lost, comes from those 1283 pixels.
 
 ### The Livox reference
 

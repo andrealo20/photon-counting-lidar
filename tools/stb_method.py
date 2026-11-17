@@ -148,8 +148,8 @@ def cycles_from_totals(totals) -> float:
     brightest pixels detect in nearly every cycle the totals pile up just
     under it. The ceiling measures the instrument, while the shape collapse
     of estimate_cycles moves with the pixels a scene holds. The percentile
-    leaves out the rare pixel far above the rest: one reaches 8424 in
-    sample 1.
+    keeps the few highest totals from setting M. In sample 1 the even
+    pixels give M = 7000, and 4 of them hold 7000 counts or more.
     """
     return float(np.ceil(np.percentile(totals, 99.9) / 100.0) * 100.0)
 
