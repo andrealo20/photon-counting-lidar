@@ -1,6 +1,7 @@
 /**
  * @file estimate.h
- * @brief Three ways to read a distance out of an arrival time histogram.
+ * @brief Three ways to read a distance out of an arrival time histogram, the
+ * third under two models of the counts.
  *
  * They differ in how much of the forward model they use, and the whole point
  * of putting them side by side is that the difference is measurable.
@@ -18,13 +19,19 @@
  * no longer biases it. It is the optimal linear estimator when the noise is
  * additive and Gaussian. Here the noise is neither.
  *
- * **Maximum likelihood.** Counts are Poisson with mean A*g_i(t0) + B, so
- * maximise sum_i [ N_i log(A g_i + B) - (A g_i + B) ] over the time of
- * flight and over the signal and background levels at the same time. Search
- * in three stages: a matched filter for a starting point, then a coarse scan
- * of the whole period with the log matched statistic that the likelihood
- * reduces to at fixed amplitudes, then expectation maximisation on the two
- * amplitudes alternating with a golden section search on t0.
+ * **Maximum likelihood.** In plidar_est_mle counts are Poisson with mean
+ * A*g_i(t0) + B, so maximise sum_i [ N_i log(A g_i + B) - (A g_i + B) ] over
+ * the time of flight and over the signal and background levels at the same
+ * time. Search in three stages: a matched filter for a starting point, then a
+ * coarse scan of the whole period with the log matched statistic that the
+ * likelihood reduces to at fixed amplitudes, then expectation maximisation on
+ * the two amplitudes alternating with a golden section search on t0.
+ * plidar_est_mle_first_photon fits the first photon model instead, in which
+ * each cycle records at most one photon and the counts are multinomial over
+ * the bins and the cycles that recorded nothing. It estimates the same three
+ * parameters in the same three stages, its coarse scan using the weights of
+ * that model, and refits the amplitudes by Newton steps at every t0 the
+ * golden section tries.
  *
  * The coarse scan covers every candidate the template fits behind, rather
  * than a neighbourhood of the matched filter peak. Restricting it would be
@@ -36,19 +43,21 @@
  *
  * "Every candidate the template fits behind" is not quite the whole period.
  * A return within a template half width of either end has no room for the
- * window and is out of reach: with the response and bins used in this
- * repository that is the first and last 1.6 ns, or about half a metre at
- * each end of a fifteen metre range. It is a property of a finite record
- * rather than of the search.
+ * window and is out of reach. The half width is 10 standard deviations of a
+ * parametric response and the whole support of a table: 31 bins of 50 ps,
+ * 1.55 ns or 23 cm of range, for the response of the simulated sweeps, and
+ * 40 bins of 750 ps for the one fitted to the recorded frame. Any search over
+ * a finite record has such a limit. The matched filter refuses a return
+ * there, since the edge of its search is all it could report.
  *
  * ## Pile up
  *
- * All three assume the histogram is undistorted. If the data were taken with
- * one record per cycle and the detection rate was not negligible, run
- * plidar_coates_invert first and pass the recovered rates multiplied by the
- * cycle count. Feeding a distorted histogram straight in produces a distance
- * that is short by a predictable amount, which is itself one of the figures
- * in this repository.
+ * The centroid, the matched filter and plidar_est_mle assume the histogram
+ * is undistorted. If the data were taken with one record per cycle and the
+ * detection rate was not negligible, run plidar_coates_invert first and pass
+ * the recovered rates multiplied by the cycle count. Feeding a distorted
+ * histogram straight in produces a distance that is short by a predictable
+ * amount, which is itself one of the figures in this repository.
  *
  * Once most cycles record, that pair still weighs the bins wrongly: the late
  * bins are seen only by the few cycles still listening, and the Poisson fit
@@ -107,6 +116,10 @@ plidar_status_t plidar_est_centroid(const plidar_scene *tmpl, const double *coun
 
 /**
  * Peak of the cross correlation with the IRF, interpolated by parabola.
+ *
+ * A peak on the first or the last candidate gives PLIDAR_ERR_DOMAIN and no
+ * estimate: the return lies at or beyond the reach of the template.
+ *
  * @param scratch caller owned, nbins doubles
  */
 plidar_status_t plidar_est_matched(const plidar_scene *tmpl, const double *counts,

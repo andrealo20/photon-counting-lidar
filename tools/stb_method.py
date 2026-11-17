@@ -332,8 +332,10 @@ def estimate_all(lib: Plidar, tmpl: Scene, hist: np.ndarray, cycles: float,
     it. A group keeps each count with probability keep, so on average it is
     the record of M*keep cycles at the same rates: the matched filter and
     "Coates then Poisson" correct it with M*keep trials, and both give NaN
-    when its counts reach M*keep and Coates refuses. The first photon fit
-    takes the counts as they are, with M and keep.
+    when its counts reach M*keep and Coates refuses. The matched filter also
+    gives NaN when its correlation peaks on the first or the last candidate,
+    for a return at or beyond the reach of its template. The first photon
+    fit takes the counts as they are, with M and keep.
     """
     out = {"argmax": float((np.argmax(hist) + 0.5) * tmpl.bin_width),
            "centroid": _t0(lambda: lib.centroid(tmpl, hist,
@@ -369,12 +371,15 @@ def precision(lib: Plidar, tmpl: Scene, hists: np.ndarray, totals: np.ndarray,
     histogram, then the pixel is split with split_groups and every estimator
     runs on every group. A group estimate that is NaN, or further than
     FAIL_BINS bins from the same estimator's estimate on the whole
-    histogram, is a failure; where the library refuses the whole histogram,
-    every group fails. Each estimator is judged against its own estimate
-    because a biased one sits at a constant offset from the first photon t0,
-    as the argmax does on a flat top, and that offset is not a failure. A
-    pixel counts for an estimator when at least 2 of its groups are left,
-    and s_p^2 is their variance (ddof 1).
+    histogram, is a failure. NaN is a refusal of the library, mapped by
+    estimate_all, such as Coates once the cycles run out or the matched
+    filter once the return lies beyond the reach of its template. Where the
+    library refuses the whole histogram, every group fails. Each estimator
+    is judged against its own estimate because a biased one sits at a
+    constant offset from the first photon t0, as the argmax does on a flat
+    top, and that offset is not a failure. A pixel counts for an estimator
+    when at least 2 of its groups are left, and s_p^2 is their variance
+    (ddof 1).
 
     One row per class and estimator, in the order of CLASSES and
     ESTIMATORS: pixels is the pixels that count, groups the groups tried (k

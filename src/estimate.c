@@ -202,11 +202,6 @@ plidar_status_t plidar_est_matched(const plidar_scene *tmpl, const double *count
         return PLIDAR_ERR_ARG;
     }
 
-    out->signal = 0.0;
-    out->background = 0.0;
-    out->loglik = 0.0;
-    out->iterations = 0u;
-
     st = build_template(tmpl, h, scratch);
     if (st != PLIDAR_OK) {
         return st;
@@ -214,17 +209,21 @@ plidar_status_t plidar_est_matched(const plidar_scene *tmpl, const double *count
 
     s = scan_max(counts, nbins, scratch, h, &c_mid);
 
-    /* The parabola needs a neighbour on each side. At the very edge of the
-     * searchable range there is none, so the estimate stays on the bin
-     * centre rather than extrapolating. */
-    if (s > h && s + h + 1u < nbins) {
-        c_lo = weighted(counts, scratch, h, s - 1u);
-        c_hi = weighted(counts, scratch, h, s + 1u);
-        delta = parabolic(c_lo, c_mid, c_hi);
-    } else {
-        delta = 0.0;
+    /* A peak on the first or the last candidate has no neighbour on one
+     * side, and the correlation may still be climbing past it: the return
+     * lies at or beyond the reach of the template. The edge of the search
+     * would be reported wherever the return was, so nothing is. */
+    if (s == h || s + h + 1u == nbins) {
+        return PLIDAR_ERR_DOMAIN;
     }
+    c_lo = weighted(counts, scratch, h, s - 1u);
+    c_hi = weighted(counts, scratch, h, s + 1u);
+    delta = parabolic(c_lo, c_mid, c_hi);
 
+    out->signal = 0.0;
+    out->background = 0.0;
+    out->loglik = 0.0;
+    out->iterations = 0u;
     fill_result(out, ((double)s + 0.5 + delta) * tmpl->bin_width);
     return PLIDAR_OK;
 }

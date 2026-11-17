@@ -630,6 +630,41 @@ static void test_first_photon_mle_prefers_the_later_of_two_clusters(void)
                               est.t0);
 }
 
+/*
+ * The matched filter tries only the candidates whose window fits inside the
+ * record, from h = 40 bins after the start to h bins before the end for this
+ * response. A return nearer an end than that pulls the correlation to the
+ * first or the last candidate, and the estimate used to be the edge of the
+ * search wherever the return was. It is refused instead. A return whose peak
+ * lands one candidate further in has a neighbour on each side and is found to
+ * a hundredth of a bin, as in the middle of the record. Rising edges in bins,
+ * refused then found.
+ */
+static void test_matched_filter_refuses_a_return_out_of_its_reach(void)
+{
+    plidar_scene sc = mc_scene();
+    const double edges[4] = {30.3, 369.7, 41.3, 358.3};
+
+    for (int k = 0; k < 4; k++) {
+        plidar_estimate est;
+
+        sc.t0 = edges[k] * sc.bin_width;
+        TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                              plidar_sim_analytic(&sc, PLIDAR_SIM_IDEAL, (double)MC_CYCLES,
+                                                  mc_counts, NP));
+        est.t0 = -1.0;
+        if (k < 2) {
+            TEST_ASSERT_EQUAL_INT(PLIDAR_ERR_DOMAIN,
+                                  plidar_est_matched(&sc, mc_counts, NP, mc_scratch, &est));
+            TEST_ASSERT_EQUAL_DOUBLE(-1.0, est.t0);
+        } else {
+            TEST_ASSERT_EQUAL_INT(PLIDAR_OK,
+                                  plidar_est_matched(&sc, mc_counts, NP, mc_scratch, &est));
+            TEST_ASSERT_DOUBLE_WITHIN(0.01 * sc.bin_width, sc.t0, est.t0);
+        }
+    }
+}
+
 /* The first photon fit with its buffers filled in, so each rejection below
  * fits on one line. */
 static plidar_status_t first_photon(const plidar_scene *sc, const double *counts,
@@ -692,6 +727,7 @@ int main(void)
     RUN_TEST(test_first_photon_mle_on_thinned_groups);
     RUN_TEST(test_first_photon_mle_survives_saturation);
     RUN_TEST(test_first_photon_mle_prefers_the_later_of_two_clusters);
+    RUN_TEST(test_matched_filter_refuses_a_return_out_of_its_reach);
     RUN_TEST(test_first_photon_mle_rejects_bad_arguments);
     return UNITY_END();
 }
