@@ -39,12 +39,15 @@ aside is counted. The Livox points recorded with the sample are a second,
 coarser reference: the registration of the two sensors limits it to
 centimetres. The derived files go to --out and carry the dataset's
 licence, CC BY-NC-SA 4.0. --cycles-only stops once M is known and writes
-nothing.
+nothing. --cycles replaces the M read off the totals, for a sensitivity
+run, and is refused unless --out points away from docs/real, so the
+published files always come from the totals.
 
 Usage::
 
     python tools/real_stb.py --synthetic [--seed 1]
     python tools/real_stb.py --data DIR --sample K [--cycles-only] [--out docs/real] [--seed 1]
+    python tools/real_stb.py --data DIR --sample K --cycles M --out DIR2 [--seed 1]
 
 Exits 1 when a check fails.
 """
@@ -108,12 +111,14 @@ def single_returns(lib: Plidar, hists: np.ndarray, cycles: float):
     return mu, edges, np.array([S.is_single_return(r, e) for r, e in zip(mu, edges)])
 
 
-def calibrate(lib: Plidar, hists: np.ndarray, totals: np.ndarray, bin_width: float):
+def calibrate(lib: Plidar, hists: np.ndarray, totals: np.ndarray, bin_width: float,
+              cycles: float | None = None):
     """M and the response from the calibration pixels, as (M, the collapse
     curve over M_GRID, the response as fit_response returns it, the number
     of single return pixels it was fitted to). M is the ceiling of the
-    totals; the collapse curve is a diagnostic."""
-    cycles = S.cycles_from_totals(totals)
+    totals unless cycles gives it; the collapse curve is a diagnostic."""
+    if cycles is None:
+        cycles = S.cycles_from_totals(totals)
     curve = S.estimate_cycles(lib, hists, totals)[1]
     mu, edges, single = single_returns(lib, hists, cycles)
     return cycles, curve, S.fit_response(mu[single], edges[single], bin_width), int(single.sum())
@@ -372,7 +377,7 @@ def write_csv(path: Path, header: list[str], rows) -> None:
 
 def shapes_figure(before: np.ndarray, after: np.ndarray, cycles: float, out: Path) -> None:
     """Mean shape of each flux class, aligned on its rising edge, as
-    recorded and after Coates with the M the classes agree on."""
+    recorded and after Coates with the M of the run."""
     fig, axes = plt.subplots(1, 2, figsize=(6.0, 2.9), sharey=True)
     x = np.arange(before.shape[1]) - 6  # stb_method.class_shapes starts 6 bins early
     colours = plt.cm.viridis(np.linspace(0.0, 0.85, len(S.CLASSES)))
@@ -414,18 +419,21 @@ def precision_figure(rows: list[dict], out: Path) -> None:
     print(f"wrote {out}")
 
 
-def print_cycles(cycles: float, totals: np.ndarray, curve: np.ndarray) -> None:
-    """M from the totals, after the collapse curve and its minimum, which
-    are a diagnostic."""
+def print_cycles(cycles: float, totals: np.ndarray, curve: np.ndarray,
+                 given: bool = False) -> None:
+    """M, from the totals or given by --cycles, after the collapse curve and
+    its minimum, which are a diagnostic."""
     low = S.M_GRID[np.argmin(curve)]
     print("distance between the class shapes after Coates, against M (a diagnostic):")
     for m, d in zip(S.M_GRID, curve):
         print(f"  {m:5d}  {d:.4f}" + ("  <- collapse minimum" if m == low else ""))
-    print(f"M {cycles:.0f}, from the totals of the valid even pixels (99.9th percentile "
+    how = "given by --cycles" if given else "from the totals of the valid even pixels"
+    print(f"M {cycles:.0f}, {how} (99.9th percentile "
           f"{np.percentile(totals, 99.9):.0f}); collapse minimum {low}, a diagnostic")
 
 
-def real(root: Path, sample: int, out: Path, cycles_only: bool, seed: int) -> int:
+def real(root: Path, sample: int, out: Path, cycles_only: bool, seed: int,
+         given: float | None = None) -> int:
     start = time.perf_counter()
     lib = Plidar()
     data = load_sample(root, sample)
@@ -450,8 +458,8 @@ def real(root: Path, sample: int, out: Path, cycles_only: bool, seed: int) -> in
         return 0
 
     # Even columns: M and the response.
-    cycles, curve, response, fitted = calibrate(lib, hist[cal], totals[cal], BIN_WIDTH)
-    print_cycles(cycles, totals[cal], curve)
+    cycles, curve, response, fitted = calibrate(lib, hist[cal], totals[cal], BIN_WIDTH, given)
+    print_cycles(cycles, totals[cal], curve, given is not None)
     fwhm, rise, tail = response_shape(response)
     print(f"response fitted to {fitted} even single return pixels: width at half height "
           f"{fwhm:.2f} bins ({fwhm * BIN_WIDTH * 1e9:.2f} ns), 10 to 90 percent rise "
@@ -485,9 +493,9 @@ def real(root: Path, sample: int, out: Path, cycles_only: bool, seed: int) -> in
 
     # The Livox reference. The shift is chosen on the even columns with the
     # fullest bin, in the dataset's own conversion to range, which the offset
-    # map is calibrated for. The other estimators place t0 on the rising
-    # edge, a constant away from that conversion, so each one's median is
-    # removed and only its spread compares.
+    # map is calibrated for. The other four estimators are each offset from
+    # that conversion, so each one's median is removed and only its spread
+    # compares.
     fullest = tof_to_range((peak - PEAK_ORIGIN) * BIN_WIDTH)
     du, dv, spread, n = find_shift(data, cal & under, fullest)
     print(f"Livox projection moved {du} columns and {dv} rows: spread of the fullest bin "
@@ -557,13 +565,19 @@ def main() -> int:
                     help="with --data, stop once M is known and write nothing")
     ap.add_argument("--out", type=Path, default=ROOT / "docs" / "real",
                     help="where --data writes its files")
+    ap.add_argument("--cycles", type=float,
+                    help="with --data, use this M in place of the one read off the totals, "
+                         "for a sensitivity run. Never used for the published files: it is "
+                         "refused when --out is docs/real, the default")
     ap.add_argument("--seed", type=int, default=1)
     a = ap.parse_args()
     if a.synthetic:
         return synthetic(a.seed)
     if a.sample is None:
         ap.error("--data needs --sample")
-    return real(a.data, a.sample, a.out, a.cycles_only, a.seed)
+    if a.cycles is not None and a.out.resolve() == (ROOT / "docs" / "real").resolve():
+        ap.error("--cycles is for sensitivity runs and never writes docs/real: give --out")
+    return real(a.data, a.sample, a.out, a.cycles_only, a.seed, a.cycles)
 
 
 if __name__ == "__main__":

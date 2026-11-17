@@ -3,7 +3,7 @@
 [![ci](https://github.com/andrealo20/photon-counting-lidar/actions/workflows/ci.yml/badge.svg)](https://github.com/andrealo20/photon-counting-lidar/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![language: C99](https://img.shields.io/badge/language-C99-00599C.svg)](https://en.wikipedia.org/wiki/C99)
-[![tests: 73 passing](https://img.shields.io/badge/tests-73%20passing-brightgreen.svg)](tests/)
+[![tests: 74 passing](https://img.shields.io/badge/tests-74%20passing-brightgreen.svg)](tests/)
 [![sanitizers: ASan + UBSan](https://img.shields.io/badge/sanitizers-ASan%20%2B%20UBSan-brightgreen.svg)](.github/workflows/ci.yml)
 [![no malloc](https://img.shields.io/badge/allocation-none-informational.svg)](#memory)
 
@@ -132,11 +132,11 @@ and citation of the derived files: [docs/real](docs/real/README.md).
 
 | photons per pixel | bound per group | first photon | Coates then Poisson | matched on Coates |
 |---|---|---|---|---|
-| 1500-3000 | 12.50 mm | 1.28x | 1.29x | 1.64x |
-| 3000-4500 | 9.53 mm | 1.36x | 1.40x | 1.78x |
-| 4500-6000 | 8.01 mm | 1.14x | 1.48x | 1.88x |
-| 6000-6500 | 7.66 mm | 1.01x | 1.93x | 2.43x |
-| 6500-7000 | 6.88 mm | 0.98x | 2.72x (1.9% lost) | 1.67x (2.0% lost) |
+| 1500-3000 | 12.50 mm | 1.28x | 1.29x | 1.64x (0.5% lost) |
+| 3000-4500 | 9.53 mm | 1.36x | 1.40x | 1.78x (0.5% lost) |
+| 4500-6000 | 8.01 mm | 1.14x | 1.48x | 1.88x (0.4% lost) |
+| 6000-6500 | 7.66 mm | 1.01x | 1.93x | 2.40x (1.4% lost) |
+| 6500-7000 | 6.88 mm | 0.98x | 2.72x (1.9% lost) | 2.71x (74.1% lost) |
 
 ## Build
 
