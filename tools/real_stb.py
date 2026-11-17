@@ -40,8 +40,8 @@ coarser reference: the registration of the two sensors limits it to
 centimetres. The derived files go to --out and carry the dataset's
 licence, CC BY-NC-SA 4.0. --cycles-only stops once M is known and writes
 nothing. --cycles replaces the M read off the totals, for a sensitivity
-run, and is refused unless --out points away from docs/real, so the
-published files always come from the totals.
+run. It is refused with --cycles-only, and when --out is docs/real or a
+folder inside it, so the published files always come from the totals.
 
 Usage::
 
@@ -568,15 +568,18 @@ def main() -> int:
     ap.add_argument("--cycles", type=float,
                     help="with --data, use this M in place of the one read off the totals, "
                          "for a sensitivity run. Never used for the published files: it is "
-                         "refused when --out is docs/real, the default")
+                         "refused when --out is docs/real, the default, or inside it, and "
+                         "with --cycles-only")
     ap.add_argument("--seed", type=int, default=1)
     a = ap.parse_args()
     if a.synthetic:
         return synthetic(a.seed)
     if a.sample is None:
         ap.error("--data needs --sample")
-    if a.cycles is not None and a.out.resolve() == (ROOT / "docs" / "real").resolve():
-        ap.error("--cycles is for sensitivity runs and never writes docs/real: give --out")
+    if a.cycles is not None and a.cycles_only:
+        ap.error("--cycles-only prints the M read off the totals, so it takes no --cycles")
+    if a.cycles is not None and a.out.resolve().is_relative_to((ROOT / "docs" / "real").resolve()):
+        ap.error("--cycles is for sensitivity runs and never writes in docs/real: give --out")
     return real(a.data, a.sample, a.out, a.cycles_only, a.seed, a.cycles)
 
 

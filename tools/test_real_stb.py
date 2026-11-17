@@ -1,11 +1,14 @@
 """Checks for the parts of real_stb.py that read the recorded sample: the
 intrinsics parser, the inverse of the published extrinsic, the per pixel
 Livox reference with its projection, the residual statistics, the shift
-search and the summary of a fitted response. Inputs small enough to work out
-by hand, so no dataset and no library are needed."""
+search, the summary of a fitted response and the refusals of --cycles.
+Inputs small enough to work out by hand, so no dataset and no library are
+needed."""
 
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
 
 import numpy as np
@@ -123,6 +126,26 @@ def test_response_shape_of_a_triangle():
     fwhm, rise, _ = R.response_shape((np.array([0, 1, 2, 1, 0.0]), -1.5 * R.BIN_WIDTH,
                                       R.BIN_WIDTH))
     assert np.isclose(fwhm, 2.0) and np.isclose(rise, 1.6), (fwhm, rise)
+
+
+def test_cycles_is_refused_into_docs_real_and_with_cycles_only():
+    # real is swapped for a stub, so only the arguments are parsed and neither
+    # the library nor the data is needed. argparse refuses with exit status 2.
+    saved = R.real, sys.argv
+    R.real = lambda *args: 0
+    inside, outside = str(R.ROOT / "docs" / "real" / "sub"), str(R.ROOT / "sub")
+    try:
+        for extra, code in ((["--out", outside], 0), ([], 2), (["--out", inside], 2),
+                            (["--out", outside, "--cycles-only"], 2)):
+            sys.argv = ["real_stb.py", "--data", "x", "--sample", "1", "--cycles", "6900", *extra]
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    got = R.main()
+            except SystemExit as e:
+                got = e.code
+            assert got == code, (extra, got)
+    finally:
+        R.real, sys.argv = saved
 
 
 def main() -> int:
